@@ -40,7 +40,14 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 #cue:empty{display:none}
 #progress{position:absolute;bottom:0;left:0;right:0;display:none;color:var(--accent);font-size:10px;line-height:1;white-space:pre;overflow:hidden;background:#0b1011c0}
 .racing #progress{display:block}
-#raceCountdown{position:absolute;top:36%;left:0;right:0;text-align:center;color:var(--accent);font-size:13px;line-height:1;white-space:pre;pointer-events:none;text-shadow:0 0 6px #000}
+#stage{container-type:inline-size}
+#stage::after{content:'';position:absolute;inset:0;background:#05090ab0;opacity:0;transition:opacity .15s;pointer-events:none}
+#stage.dim::after{opacity:1}
+#raceCountdown{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2;text-align:center;white-space:pre;pointer-events:none;color:var(--accent);background:#0b1011f0;outline:1px dashed currentColor;outline-offset:-8px;padding:3cqw 5cqw 2.4cqw;line-height:1}
+#raceCountdown .bigword{font-weight:bold;font-size:clamp(11px,2.9cqw,40px);line-height:.95;text-shadow:0 0 12px currentColor}
+#raceCountdown .cap{font-size:clamp(10px,1.25cqw,15px);color:var(--ink);letter-spacing:.06em}
+#raceCountdown[data-s="3"] .bigword,#raceCountdown[data-s="2"] .bigword,#raceCountdown[data-s="1"] .bigword{font-size:clamp(16px,5.6cqw,76px)}#raceCountdown[data-s="3"]{color:var(--red)}#raceCountdown[data-s="2"]{color:var(--amber)}#raceCountdown[data-s="1"]{color:#fff36a}#raceCountdown[data-s="GO"]{color:var(--accent);background:transparent;outline:0}#raceCountdown[data-s="PAUSED"]{color:var(--amber)}
+@media(prefers-reduced-motion:reduce){#stage::after{transition:none}}
 /* Lobby overlay inside the frame */
 #overlay{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 0 6px}
 .dialog h2{font-size:18px}.dialog p{color:var(--muted);font-size:12px;max-width:62ch}
