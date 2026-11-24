@@ -1,4 +1,9 @@
-Track outline from JJ Ying, https://github.com/JJYing/Nurburgring-Map
+Track data from JJ Ying, https://github.com/JJYing/Nurburgring-Map
+(demo/route.json, demo/corners.json, demo/curbs.json; copies in tools/source/).
+The route was originally derived from VeloViewer segment 5539685 (GPS-based).
+Kerb intervals are video-informed estimates. Verify rights to the underlying
+route data before commercial use.
+
 MIT License, Copyright (c) 2025 JJ Ying.
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

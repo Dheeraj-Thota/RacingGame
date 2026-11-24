@@ -3,8 +3,10 @@
 ## P0 — Driving and visual quality
 
 - [ ] Replace placeholder vehicle mesh with a commercially licensed, dimensionally accurate car asset; separate wheel, steering, suspension and aero animations.
-- [ ] Replace approximate circuit geometry with properly licensed, surveyed centerline, elevation, banking and width data.
-- [ ] Tune vehicle dynamics with repeatable braking, cornering and high-speed tests; gather human playtest feedback.
+- [x] GPS-derived centreline with real elevation and named corners (v5).
+- [ ] Replace with properly licensed, surveyed centreline, elevation, banking (Karussell) and width data.
+- [x] Four-wheel tyre model calibrated to published acceleration, top speed and braking (v5).
+- [ ] Gather human playtest feedback on keyboard and gamepad handling; tune assists.
 - [ ] Measure frame pacing and target 60 FPS across representative desktop and mobile hardware; retain clear ASCII glyphs at every quality setting.
 - [ ] Simplify and validate the complete home → attempt → result flow, including interruption and recovery.
 

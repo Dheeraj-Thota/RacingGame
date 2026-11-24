@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1, viewport-fit=cover" name="viewport"/><title>Redline — Daily race</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 fill=%22%230d1213%22/%3E%3Ctext x=%223%22 y=%2213%22 font-family=%22monospace%22 font-size=%2213%22 fill=%22%23ff6a58%22%3E%23%3C/text%3E%3C/svg%3E"/>
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}
+:root{--bg:#0d1213;--panel:#0d1213;--ink:#e5e6d9;--muted:#8f9d97;--accent:#d8f078;--red:#ff6a58;--amber:#f2c14e;--line:#4a5a52;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--lh:1.5}
+html{color-scheme:dark;background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/var(--lh) var(--mono);-webkit-font-smoothing:antialiased}
+main{max-width:1280px;margin:auto;padding:18px 22px 10px}
+h1,h2,h3,p,pre{margin:0;font:inherit}
+a{color:inherit;text-underline-offset:3px}
+.muted{color:var(--muted)}.acc{color:var(--accent)}.red{color:var(--red)}.amb{color:var(--amber)}
+/* ASCII frames: four text edges drawn around .box, sized by CSS so they fit any width */
+.box{position:relative;padding:calc(var(--lh)*1em) 2ch;margin:0 0 calc(var(--lh)*1em)}
+.box>.fr{position:absolute;color:var(--line);pointer-events:none;white-space:pre;overflow:hidden;line-height:var(--lh);user-select:none}
+.box>.fr-t,.box>.fr-b{left:0;right:0;height:calc(var(--lh)*1em)}.box>.fr-t{top:0}.box>.fr-b{bottom:0}
+.box>.fr-l,.box>.fr-r{top:calc(var(--lh)*1em);bottom:calc(var(--lh)*1em);width:1ch}.box>.fr-l{left:0}.box>.fr-r{right:0}
+.box>.fr-c{width:1ch;height:calc(var(--lh)*1em);background:var(--bg)}.fr-c1{left:auto;right:0;top:0}.fr-c2{right:0;bottom:0}
+.box>.fr-t b{color:var(--accent);font-weight:normal;background:var(--bg)}
+/* Header */
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.logo{color:var(--ink);font-size:11px;line-height:1.05;letter-spacing:0;white-space:pre}.logo i{color:var(--red);font-style:normal}
+.clock{text-align:right;white-space:pre;color:var(--muted);font-size:11px;line-height:1.35}.clock strong{color:var(--ink);font-size:15px;font-weight:normal}
+.rule{white-space:nowrap;overflow:hidden;color:var(--line);margin:10px 0 12px;user-select:none}
+.headline{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.headline h2{font-size:18px;line-height:1.25}.eyebrow{color:var(--muted);font-size:11px}
+.tag{color:var(--accent)}.tag:before{content:'[';color:var(--line)}.tag:after{content:']';color:var(--line)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}
+.layout>section{min-width:0}
+/* Stage */
+.stagebar{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;padding:0 0 4px}
+#stage{position:relative;aspect-ratio:16/9;overflow:hidden;background:#071014;outline:1px dashed var(--line);outline-offset:3px}
+#view,#gpuview{width:100%;height:100%;display:block;object-fit:contain;outline:none}
+#stage:fullscreen{aspect-ratio:auto;outline:0}
+.hud{position:absolute;pointer-events:none;color:#f3f5ec;white-space:pre;font-size:12px;line-height:1.25;background:#0b1011e0;padding:6px 9px;display:none}
+.racing .hud{display:block}
+#hudMain{left:10px;top:10px}#hudMain .big{font-size:34px;line-height:1;color:#fff}
+#map{right:10px;top:10px;font-size:9px;line-height:1}
+#hudCar{left:10px;bottom:22px}#hudPed{right:10px;bottom:22px;text-align:right}
+#cue{position:absolute;left:50%;top:10px;transform:translateX(-50%);color:var(--red);font-weight:bold;background:#0b1011e0;padding:3px 9px;pointer-events:none;white-space:pre}
+#cue:empty{display:none}
+#progress{position:absolute;bottom:0;left:0;right:0;display:none;color:var(--accent);font-size:10px;line-height:1;white-space:pre;overflow:hidden;background:#0b1011c0}
+.racing #progress{display:block}
+#raceCountdown{position:absolute;top:36%;left:0;right:0;text-align:center;color:var(--accent);font-size:13px;line-height:1;white-space:pre;pointer-events:none;text-shadow:0 0 6px #000}
+/* Lobby overlay inside the frame */
+#overlay{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:14px 0 6px}
+.dialog h2{font-size:18px}.dialog p{color:var(--muted);font-size:12px;max-width:62ch}
+#resultCard{white-space:pre;color:var(--ink);font-size:12px;line-height:1.3;margin-top:6px}
+.buttons{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+button{font:inherit;color:inherit;cursor:pointer;background:transparent;border:0;padding:4px 0;white-space:nowrap}
+button:before{content:'[ ';color:var(--line)}button:after{content:' ]';color:var(--line)}
+button.primary{color:var(--accent)}button.primary:before,button.primary:after{color:var(--accent)}
+button:hover:not(:disabled),button:focus-visible{color:var(--accent);text-decoration:underline;text-underline-offset:3px;outline:0}
+button:disabled{opacity:.35;cursor:default}
+button.cycle b{font-weight:normal;color:var(--accent)}
+.controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;color:var(--muted);margin-top:10px}
+.controls .spacer{flex:1}
+.keyhelp{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:10px 0 0}
+kbd{font:inherit;color:var(--ink)}kbd:before{content:'[';color:var(--line)}kbd:after{content:']';color:var(--line)}
+.touchbar{display:none;gap:10px;margin-top:10px}.touchbar button{flex:1;padding:14px 0;touch-action:none;user-select:none}
+select{display:none}
+/* Sidebar */
+.side .box{font-size:11px}
+.side h3{font-size:14px;margin-bottom:4px}
+#leader,#asciiRoute,#elev,#spec,#sectorList{white-space:pre;overflow:hidden;line-height:1.3}
+#leader .you,#asciiRoute .selected,#elev .selected{color:var(--accent)}
+#asciiRoute{font-size:9px;line-height:1.02;color:#97a59d}
+#asciiRoute .sf{color:var(--red)}
+#elev{font-size:10px;line-height:1.05;color:#97a59d}
+#resultTime{font-size:24px;color:var(--accent)}#resultTime:empty{display:none}
+#resultText{color:var(--accent)}
+footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--muted);padding:2px 0 14px}
+#modelStatus{color:var(--muted)}
+/* Racing layout */
+.racing .side,.racing #overlay,.racing footer,.racing .lobbyonly{display:none!important}
+.racing .layout{display:block}.racing main{max-width:min(1500px,calc((100vh - 150px)*16/9 + 44px))}
+.racing header .logo{font-size:5px}.racing .rule{margin:4px 0}
+@media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr) 250px}}
+@media(max-width:700px){main{padding:10px}.layout{display:block}.racing main{max-width:100%}.hud{font-size:9px}#hudMain .big{font-size:22px}#map{font-size:6px}.logo{font-size:6px}}
+@media(pointer:coarse){.racing .touchbar{display:flex}}
+</style></head><body><main>
+<header><pre class="logo" aria-label="Redline">#####  ###### #####  #      ### #   # ######
+#    # #      #    # #       #  ##  # #
+#####  ####   #    # #       #  # # # ####
+#   #  #      #    # #       #  #  ## #
+#    # ###### #####  ###### ### #   # ###### <i>##</i></pre>
+<div class="clock">NEXT DAILY IN <strong id="countdown">--:--:--</strong>
+<span id="netLabel">CONNECTING</span></div></header>
+<div class="rule" aria-hidden="true">+==================================================================================================================================================================================================================================+</div>
+<div class="headline"><div><div class="eyebrow" id="dailyLabel">Daily time trial</div><h2 id="sectorTitle">Nordschleife</h2><div class="eyebrow" id="sectorLabel"></div></div><span class="tag" id="stageMode">DAILY / 01</span></div>
+<div class="layout"><section>
+<div class="stagebar"><span>NORDSCHLEIFE / LIVE / 3D ASCII</span><span id="perf">Loading</span></div>
+<div id="stage" tabindex="-1"><canvas aria-label="3D ASCII racing game" height="576" id="view" tabindex="0" width="1024"></canvas>
+<pre class="hud" id="hudMain"></pre><pre class="hud" id="map" aria-label="Live ASCII sector map"></pre><pre class="hud" id="hudCar"></pre><pre class="hud" id="hudPed"></pre>
+<span id="cue"></span><div id="progress"></div><pre hidden id="raceCountdown"></pre></div>
+<div class="box lobbyonly" data-title="RACE CONTROL" id="overlayBox"><div id="overlay"><div class="dialog"><div class="eyebrow" id="overlayTag"></div><h2 id="overlayTitle">Today’s race</h2><p id="overlayDesc">One ranked attempt. Fastest time wins.</p><pre id="resultCard"></pre></div><input hidden id="name"/>
+<div class="buttons"><button disabled id="practice">Practice sector</button><button disabled id="lap">Practice full lap</button><button class="primary" disabled id="start">Start daily run</button></div></div>
+<div class="keyhelp"><span><kbd>W</kbd>/<kbd>&uarr;</kbd> throttle</span><span><kbd>S</kbd>/<kbd>&darr;</kbd> brake · hold at stop = reverse</span><span><kbd>A</kbd><kbd>D</kbd> steer</span><span><kbd>P</kbd> pause · <kbd>R</kbd> restart (practice)</span><span>Gamepad: stick + triggers</span></div></div>
+<div class="touchbar"><button data-key="a">&lt;</button><button data-key="d">&gt;</button><button data-key="s">BRAKE</button><button data-key="w">GAS</button></div>
+<div class="controls"><button class="cycle" id="cameraBtn">VIEW <b>CHASE</b></button><button class="cycle" id="qualityBtn">DETAIL <b>AUTO</b></button><button class="cycle" id="modeBtn">LOOK <b>ASCII</b></button><span class="spacer"></span><button disabled id="reset">End run</button><button hidden id="pause">Pause</button><button id="full">Fullscreen</button><button class="lobbyonly" id="importModel">Load body OBJ</button><input accept=".obj" hidden id="bodyFile" type="file"/><span class="lobbyonly" id="modelStatus">Procedural placeholder body</span>
+<select id="camera"><option value="hood">Hood</option><option selected value="center">Chase</option><option value="chase">Offset</option></select><select id="quality"><option value="auto">Auto</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option><option value="4">Max</option></select><select id="mode"><option value="color">ASCII</option><option value="pure">Pure ASCII</option><option value="mono">Green</option><option value="white">Mono</option><option value="raw">3D</option></select></div>
+</section>
+<aside class="side">
+<div class="box" data-title="TIMING TOWER"><h3>Daily standings</h3><div class="muted" id="boardNote">No global rankings in local mode.</div><div id="resultText"></div><div id="resultTime"></div><div class="muted" id="resultDetail"></div><button hidden id="share">Copy result</button><pre id="leader"></pre></div>
+<div class="box" data-title="CIRCUIT"><pre aria-label="ASCII circuit map" id="asciiRoute"></pre><div class="muted"><span class="acc">@</span> today · <span class="red">S</span> start/finish · <span>:</span> lap</div><pre aria-label="Sector elevation profile" id="elev"></pre><div class="muted" id="routeDist"></div></div>
+<div class="box" data-title="SECTORS"><pre id="sectorList"></pre></div>
+<div class="box" data-title="CAR"><pre id="spec"></pre></div>
+</aside></div>
+<div class="rule" aria-hidden="true">+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+</div>
+<footer><span>REDLINE / INDEPENDENT DAILY RACER · not affiliated with Porsche or the Nürburgring</span><span>Centreline: <a href="https://github.com/JJYing/Nurburgring-Map">JJ Ying / MIT</a> (GPS route via VeloViewer). Width, kerbs, banking and scenery approximate.</span></footer>
+</main><script>
+/*@@PHYSICS@@*/
+/*@@TRACK@@*/
+/*@@CLIENT@@*/
+</script></body></html>

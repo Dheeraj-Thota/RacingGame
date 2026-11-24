@@ -1,6 +1,6 @@
 'use strict';
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{DatabaseSync}=require('node:sqlite'),Race=require('./physics.js'),road=Race.circuit(require('./track.json'));
-const db=new DatabaseSync(process.env.DB_PATH||path.join(__dirname,'redline-v4.sqlite'));db.exec("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS attempts (day TEXT NOT NULL, player TEXT NOT NULL, token TEXT UNIQUE NOT NULL, started INTEGER NOT NULL, status TEXT NOT NULL, name TEXT NOT NULL, time REAL, reason TEXT, PRIMARY KEY(day,player));");
+const db=new DatabaseSync(process.env.DB_PATH||path.join(__dirname,'redline-v5.sqlite'));db.exec("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS attempts (day TEXT NOT NULL, player TEXT NOT NULL, token TEXT UNIQUE NOT NULL, started INTEGER NOT NULL, status TEXT NOT NULL, name TEXT NOT NULL, time REAL, reason TEXT, PRIMARY KEY(day,player));");
 const token=()=>crypto.randomBytes(24).toString('hex');
 function identity(req,res){let id=(req.headers.cookie||'').match(/(?:^|;\s*)redline=([a-f0-9]{48})(?:;|$)/)?.[1];if(!id){id=token();res.setHeader('Set-Cookie','redline='+id+'; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000'+(process.env.COOKIE_SECURE==='1'?'; Secure':''));}return id;}
 function json(res,data,status=200){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));}
