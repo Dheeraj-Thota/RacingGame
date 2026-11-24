@@ -40,6 +40,8 @@ npm test
 | C / VIEW | Chase far, chase near, bumper, hood |
 | L / LINE | Driving line on/off |
 | G / GHOST | Ghost of your best run on/off |
+| M / SOUND | Sound on/off |
+| PAINT | Car colour (lobby) |
 | DETAIL | Manual quality or automatic scaling toward 60 FPS |
 
 The current development build leaves practice unlocked for testing.
@@ -52,6 +54,7 @@ The current development build leaves practice unlocked for testing.
 - Track-limit and barrier-contact penalties; a finished run is ranked by total elapsed time including penalties.
 - Global position, percentile and time behind the leader when shared rankings are available.
 - Practice and personal improvement without overwriting the official daily result.
+- Sense of speed: field of view widens with speed, camera buzz at speed and rumble on kerbs and grass, motion streaks at the screen edges (GPU renderer), and synthesised engine, wind, tyre and kerb sound (M to mute).
 - Gran Turismo-style aids: a driving line coloured for throttle, lift and braking zones; a ghost of your best run (stored as inputs and re-simulated); a live delta to that best; and an ASCII speed trace against it after each run. These are visual only and identical for every driver.
 
 ## Architecture
@@ -140,7 +143,7 @@ The renderer draws a detailed scene for roughly the next 650 m and a low-detail 
 
 ## Asset fidelity and licensing
 
-The bundled car is an original procedural placeholder inspired by the 992 GT3 RS; it is **not** an accurate Porsche asset. Its wheelbase, tracks and tyre sizes now match published figures and its wheels spin, steer and pitch/roll from the simulation, but the body shape is approximate. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
+The bundled car is the **Kestrel RS**, an original Redline design in the spirit of a rear-engined track car, not a replica of any production model. Its wheelbase, tracks and tyre sizes match the simulated car, its wheels spin and steer from the simulation, and it comes in six paints with racing stripes. Performance is modelled on published 992 GT3 RS figures; the body is not a Porsche asset. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
 
 The circuit is built by `tools/build-track.js` from the route, corner and kerb files in [JJ Ying's Nürburgring Map](https://github.com/JJYing/Nurburgring-Map) (MIT, see [TRACK-LICENSE.txt](TRACK-LICENSE.txt)). The route is GPS-derived (VeloViewer segment 5539685): the generated lap is 20,822.6 m (official 20,832 m), runs clockwise and spans 334–623 m elevation. It is smoothed, its 184 m start seam is interpolated, and a source spike of ~30% grade after Breidscheid is redistributed to an 18% maximum. Width, banking (including the Karussell), kerbs, corner ranges and scenery are approximate, not laser-scanned. Rights to the underlying route data should be confirmed before commercial use. No externally downloaded Porsche mesh is bundled.
 
