@@ -37,7 +37,9 @@ npm test
 | Gamepad | Left stick steers, triggers are analogue throttle and brake |
 | P | Pause practice |
 | R | Restart practice |
-| C / VIEW | Chase, offset chase, hood |
+| C / VIEW | Chase far, chase near, bumper, hood |
+| L / LINE | Driving line on/off |
+| G / GHOST | Ghost of your best run on/off |
 | DETAIL | Manual quality or automatic scaling toward 60 FPS |
 
 The current development build leaves practice unlocked for testing.
@@ -50,6 +52,7 @@ The current development build leaves practice unlocked for testing.
 - Track-limit and barrier-contact penalties; a finished run is ranked by total elapsed time including penalties.
 - Global position, percentile and time behind the leader when shared rankings are available.
 - Practice and personal improvement without overwriting the official daily result.
+- Gran Turismo-style aids: a driving line coloured for throttle, lift and braking zones; a ghost of your best run (stored as inputs and re-simulated); a live delta to that best; and an ASCII speed trace against it after each run. These are visual only and identical for every driver.
 
 ## Architecture
 
