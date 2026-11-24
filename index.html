@@ -164,7 +164,7 @@ const CAR={
  frontWeight:.39,      // est: rear-engined 992 GT3 static distribution ~39/61
  cgHeight:.42,         // est
  yawInertia:2350,      // est, kg m^2
- rollFront:.46,        // est: front share of roll stiffness
+ rollFront:.50,        // est: front share of roll stiffness (stable, slightly understeering balance)
  tyreF:{radius:.350,width:.275,inertia:1.15}, // 275/35 ZR20
  tyreR:{radius:.367,width:.335,inertia:1.45}, // 335/30 ZR21
  // Engine: 386 kW at 8500 rpm, 465 Nm at 6300 rpm, 9000 rpm limit (published). Intermediate curve points est.
@@ -174,14 +174,17 @@ const CAR={
  // Aero: 409 kg at 200 km/h and 860 kg at 285 km/h (published) -> ~1.33 N/(m/s)^2.
  // cd x A 0.862 m^2 published (low-drag/DRS); 0.95 est for the high-downforce track setting -> ~296 km/h.
  downforce:1.33, aeroFront:.42, dragArea:.95, airDensity:1.225, rolling:.011,
- brakeF:4300, brakeR:2150, // est max torque per wheel, N m (408/380 mm discs)
- mu:1.46, muLoadSens:.085, loadRef:4000, peakSlip:.105, peakRatio:.11, // est: Cup 2 R dry
+ brakeF:4300, brakeR:2350, // est max torque per wheel, N m (408/380 mm discs): ~65% front brake force
+ brakeLag:.045,       // s, hydraulic + pad response
+ discHeat:5200,       // est J/K per corner (disc, pad, caliper share); steel discs
+ brakeTemp0:260,      // degC at a rolling start
+ mu:1.46, muLoadSens:.07, loadRef:4000, peakSlip:.12, peakRatio:.11, // est: Cup 2 R dry
  maxSteer:.43, rearSteer:.035
 };
 
 const SUB=4,HZ=120,DT=1/HZ,H=DT/SUB,G=9.81,HALF=4.7,WALL=8.05,PENALTY_LINE=HALF+.55;
 const L=20822.565;   // must equal track.json length
-const MF_B=2.07,MF_C=1.4; // magic-formula shape with peak at normalised slip 1, ~0.81 sliding ratio
+const MF_B=2.646,MF_C=1.3; // magic-formula shape: peak at normalised slip 1, ~0.89 sliding ratio (progressive breakaway)
 
 // ---- Track ----
 function circuit(raw){
@@ -219,6 +222,9 @@ function challenge(date){const day=typeof date==='string'?date:new Date().toISOS
  return {day,id:VERSION+'-'+day,number:i+1,...sectors[i],car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(sectors[i].length)};}
 function fullLap(){return {day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(L),practiceOnly:true};}
 
+// ---- Brakes: pad friction vs disc temperature (cold bite, plateau, fade above ~720 degC) ----
+function padMu(t){if(t<120)return .80+.20*t/120;if(t<720)return 1;return Math.max(.55,1-(t-720)/950);}
+
 // ---- Engine ----
 function engineTorque(rpm){const t=CAR.torque;if(rpm<=t[0][0])return t[0][1];for(let i=1;i<t.length;i++)if(rpm<=t[i][0]){const a=t[i-1],b=t[i];return a[1]+(b[1]-a[1])*(rpm-a[0])/(b[0]-a[0]);}return 0;}
 const gearRatio=g=>CAR.ratios[g-1]*CAR.finalDrive;
@@ -243,7 +249,7 @@ function decode(code){if(code<ANALOG)return {analog:false,gas:code&1?1:0,brake:c
 function encodeAnalog(steer,gas,brake){return ANALOG+Math.round(clamp(steer,-1,1)*127+127)+255*(Math.round(clamp(gas,0,1)*15)+16*Math.round(clamp(brake,0,1)*15));}
 
 function initial(c){const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<7&&rpmFor(wr,gear)>7600)gear++;
- return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
+ return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
   load:[0,0,0,0],psm:0,slip:[0,0,0,0],surface:[0,0,0,0],ticks:0,offTicks:0,contact:false,invalid:false,done:false,time:null,reason:'',maxSpeed:v,penalty:0,wallTicks:0,collisions:0,lastContact:-10000,cornerSpeed:90,impact:0,airborne:false};}
 
 // Corner-speed estimate for HUD cues and the test driver: grip + aero limited, braking-distance aware.
@@ -274,7 +280,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   // Steering: speed-dependent limit near the front tyres' peak slip (keyboard aid), plus self-alignment
   const uu=Math.max(u,3),aLat=CAR.mu*(G+CAR.downforce*u*u/m)*.92,kin=L_*aLat/(uu*uu),lim=clamp(kin+CAR.peakSlip*1.15,.07,CAR.maxSteer);
   const betaF=atan((v+r*A)/uu),align=clamp(betaF*.7,-lim,lim),mag=Math.abs(a.steer);
-  const delta=inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align;
+  const beta=atan(v/uu),sliding=Math.abs(beta)>.04&&sgn(beta)===-sgn(r)&&u>6;
+  // Steering assist (as in arcade-sim racers on keyboard/pad): when the rear steps out, add countersteer.
+  const counter=sliding?clamp(beta*(inp.analog?.45:.3),-.16,.16):0;
+  const delta=(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter;
   a.delta=delta;
   const rs=clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer);
   // Loads: static (with crests/compressions and grade), aero, transfer
@@ -294,9 +303,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const lock=clamp((a.w[2]-a.w[3])*650,-(140+.35*Math.abs(axle)),140+.35*Math.abs(axle));
   // PSM (stability control): when sideslip and yaw exceed what the steering asks for, cut torque and
   // brake the outer front wheel to create a stabilising yaw moment.
-  const beta=atan(v/uu),rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.045&&sgn(beta)===-sgn(r)&&u>8;
-  const psm=over?clamp((Math.abs(beta)-.045)*9+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
+  const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.035&&sgn(beta)===-sgn(r)&&u>8;
+  const psm=over?clamp((Math.abs(beta)-.035)*9+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
   const psmWheel=r>0?0:1; // turning right -> outer (left) front
+  a.bp+=(pedalBrake-a.bp)*Math.min(1,H/CAR.brakeLag);
   let Fx=0,Fy=0,Mz=0,tcSlip=0;
   for(let i=0;i<4;i++){
    const W=TW[i],front=i<2,ty=front?CAR.tyreF:CAR.tyreR,R=ty.radius,st=front?delta:rs;
@@ -308,14 +318,17 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
    tyre(kappa,ta,fz[i],tyreOut);
    const fx=tyreOut.fx,fy=tyreOut.fy;const nk=kappa/CAR.peakRatio,na=ta/CAR.peakSlip;a.slip[i]=Math.sqrt(nk*nk+na*na);a.load[i]=fz[i];
    // ABS per wheel, TC on driven wheels
-   if(kappa<-CAR.peakRatio*1.15&&pedalBrake>.05)a.abs[i]=Math.max(.15,a.abs[i]-H*14);else a.abs[i]=Math.min(1,a.abs[i]+H*7);
-   if(!front&&kappa>CAR.peakRatio*1.25)tcSlip=1;
+   const target=-CAR.peakRatio*(front?.95:.82); // ABS slip target; lower at the rear (EBD) for stability
+   if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
+   else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
+   if(!front&&kappa>CAR.peakRatio*1.15)tcSlip=1;
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
    const I=ty.inertia+(front?0:reflected),drive=front?0:axle/2+(i===2?-lock:lock);
-   const brakeT=Math.min(1,pedalBrake+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i],roll=CAR.rolling*fz[i]*R;
+   const brakeT=Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]),roll=CAR.rolling*fz[i]*R;
    let w=a.w[i];const net=drive-fx*R,dw=H*net/(I+H*tyreOut.dfx*R*R/den);w+=dw;
    const bt=(brakeT+roll)*H/I;if(w>0)w=Math.max(0,w-bt);else w=Math.min(0,w+bt);
    if(!a.reverse&&w<0&&tu>=0)w=0;a.w[i]=w;
+   a.bt[i]+=H*(brakeT*Math.abs(w)*.92-(9+1.7*Math.abs(u))*(a.bt[i]-20))/CAR.discHeat; // heat in, convective cooling out
    // tyre forces to body frame
    const bx=fx*cd-fy*sd,by=fx*sd+fy*cd;Fx+=bx;Fy+=by;Mz+=W.x*by-W.y*bx;
   }
@@ -335,9 +348,9 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   for(let j=0;j<CORNERS.length;j++){const [x,y]=CORNERS[j],dc=a.d+x*sn3+y*cs3,pen=Math.abs(dc)-WALL;if(pen>deep){deep=pen;ci=j;cside=sgn(dc);}}
   if(ci>=0){const [x,y]=CORNERS[ci];a.d-=cside*deep;const nx=-cside*sn3,ny=-cside*cs3;
    const pu=a.vx-a.yawRate*y,pv=a.vy+a.yawRate*x,vn=pu*nx+pv*ny;
-   if(vn<0){const tn=x*ny-y*nx,J=-(1.25*vn)/(1/m+tn*tn/Iz);a.vx+=J*nx/m;a.vy+=J*ny/m;a.yawRate+=J*tn/Iz;
-    const tx=-ny,tyy=nx,vt=pu*tx+pv*tyy,tt=x*tyy-y*tx,Jt=clamp(-vt/(1/m+tt*tt/Iz),-.35*J,.35*J);a.vx+=Jt*tx/m;a.vy+=Jt*tyy/m;a.yawRate+=Jt*tt/Iz;
-    impact=Math.max(impact,-vn);}
+   if(vn<0){const tn=x*ny-y*nx,J=-(1.12*vn)/(1/m+tn*tn/Iz);a.vx+=J*nx/m;a.vy+=J*ny/m;a.yawRate+=J*tn/Iz;
+    const tx=-ny,tyy=nx,vt=pu*tx+pv*tyy,tt=x*tyy-y*tx,Jt=clamp(-vt/(1/m+tt*tt/Iz),-.2*J,.2*J);a.vx+=Jt*tx/m;a.vy+=Jt*tyy/m;a.yawRate+=Jt*tt/Iz;
+    impact=Math.max(impact,-vn);a.yawRate*=.75;}
    contactNow=true;}
   if(a.s>=c.start+c.length&&!a.done){a.done=true;a.time=(a.ticks+(sub+clamp((c.start+c.length-before)/Math.max(a.s-before,1e-6),0,1))/SUB)/HZ+a.penalty;break;}
  }
@@ -377,7 +390,7 @@ const vs=`attribute vec3 aPosition;attribute vec3 aColor;uniform vec3 uEye;unifo
 const fs=`precision highp float;varying vec3 vColor;varying float vDepth;varying vec3 vWorld;
 float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
 float noise(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
-void main(){vec3 c=vColor;bool green=c.g>c.r*1.28&&c.g>c.b*1.35;bool grey=abs(c.r-c.b)<.12&&abs(c.g-c.r)<.08&&c.r>.22&&c.r<.72;float tex=noise(vWorld*(green?3.6:12.));float broad=noise(vWorld*.47);float f=green?.70+.48*tex+.24*broad:grey?.83+.27*tex+.12*broad:.98+.04*tex;float fog=1.0-exp(-max(vDepth,0.0)*.00062);gl_FragColor=vec4(mix(c*f,vec3(.60,.76,.94),fog),1.0);}`;
+void main(){vec3 c=vColor;bool green=c.g>c.r*1.28&&c.g>c.b*1.35;bool grey=abs(c.r-c.b)<.12&&abs(c.g-c.r)<.08&&c.r>.22&&c.r<.72;float tex=noise(vWorld*(green?3.6:12.));float broad=noise(vWorld*.47);float f=green?.70+.48*tex+.24*broad:grey?.83+.27*tex+.12*broad:.98+.04*tex;float fog=1.0-exp(-max(vDepth,0.0)*.00032);gl_FragColor=vec4(mix(c*f,vec3(.60,.76,.94),fog),1.0);}`;
 function shader(kind,src){let sh=gl.createShader(kind);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh;}let program,loc={},buffer,staticBuffer;if(gl){try{program=gl.createProgram();gl.attachShader(program,shader(gl.VERTEX_SHADER,vs));gl.attachShader(program,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);for(let n of ['aPosition','aColor'])loc[n]=gl.getAttribLocation(program,n);for(let n of ['uEye','uRight','uUp','uForward','uFocal'])loc[n]=gl.getUniformLocation(program,n);buffer=gl.createBuffer();staticBuffer=gl.createBuffer();gl.enable(gl.DEPTH_TEST);gl.clearColor(0,0,0,0);}catch(e){useCPU(e);}}let verts=[];
 const sub=(a,b)=>a.map((x,i)=>x-b[i]), cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0),norm=a=>{let l=Math.hypot(...a)||1;return a.map(x=>x/l)},sun=norm([-.65,.72,-.42]);
 function tri(a,b,c,color,flat=false){let n=norm(cross(sub(b,a),sub(c,a)));let light=flat?1:.48+.68*Math.abs(dot(n,sun));let glossy=!flat&&color[0]>.63&&color[1]>.12&&color[1]<.6&&color[2]<.15;let spec=glossy?Math.pow(Math.abs(dot(n,norm([-.32,.91,-.25]))),14)*.28:0;let rgb=color.map((x,i)=>clamp(x*light+(i===2?.023:.008)+spec*(i===2?.9:1),0,1));for(let p of [a,b,c])verts.push(...p,...rgb);}
@@ -439,30 +452,48 @@ for(let side of [-1,1]){panel([side*1.04,.16,-.94],[side*1.04,.16,.86],[side*1.0
 }
 }
 let swimg=g.createImageData(W,H), zbuf=new Float32Array(W*H);
-function software(eye,right,up,forward){let pix=swimg.data;for(let i=0;i<W*H;i++){let q=i*4;pix[q]=0;pix[q+1]=0;pix[q+2]=0;pix[q+3]=0;}zbuf.fill(0);let fx=1.18*W/2,fy=1.18*view.width/view.height*H/2;
+function software(eye,right,up,forward,lists){let pix=swimg.data;for(let i=0;i<W*H;i++){let q=i*4;pix[q]=0;pix[q+1]=0;pix[q+2]=0;pix[q+3]=0;}zbuf.fill(0);let fx=1.18*W/2,fy=1.18*view.width/view.height*H/2;
 function project(v){let iz=1/v[2];return [W/2+v[0]*fx*iz,H*.47-v[1]*fy*iz,iz];}
-function draw(a,b,c,r,gg,bb){let p=project(a),q=project(b),t=project(c),x0=p[0],y0=p[1],x1=q[0],y1=q[1],x2=t[0],y2=t[1];let minx=Math.max(0,Math.floor(Math.min(x0,x1,x2))),maxx=Math.min(W-1,Math.ceil(Math.max(x0,x1,x2))),miny=Math.max(0,Math.floor(Math.min(y0,y1,y2))),maxy=Math.min(H-1,Math.ceil(Math.max(y0,y1,y2)));if(minx>maxx||miny>maxy)return;let den=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);if(Math.abs(den)<1e-6)return;let inv=1/den;let fog=1-Math.exp(-Math.max(0,(a[2]+b[2]+c[2])/3)*.0006);let R=(r*(1-fog)+.60*fog)*255,G=(gg*(1-fog)+.76*fog)*255,B=(bb*(1-fog)+.94*fog)*255;for(let y=miny;y<=maxy;y++)for(let x=minx;x<=maxx;x++){let u=((y1-y2)*(x+.5-x2)+(x2-x1)*(y+.5-y2))*inv,v=((y2-y0)*(x+.5-x2)+(x0-x2)*(y+.5-y2))*inv,w=1-u-v;if(u<-.0001||v<-.0001||w<-.0001)continue;let iz=u*p[2]+v*q[2]+w*t[2],idx=y*W+x;if(iz<=zbuf[idx])continue;zbuf[idx]=iz;let j=idx*4;pix[j]=R;pix[j+1]=G;pix[j+2]=B;pix[j+3]=255;}}
-for(let i=0;i<verts.length;i+=18){let a=[];for(let j=i;j<i+18;j+=6){let x=verts[j]-eye[0],y=verts[j+1]-eye[1],z=verts[j+2]-eye[2];a.push([x*right[0]+y*right[1]+z*right[2],x*up[0]+y*up[1]+z*up[2],x*forward[0]+y*forward[1]+z*forward[2]]);}if(a.every(p=>p[2]<.25))continue;let clip=[];for(let j=0;j<3;j++){let u=a[j],v=a[(j+1)%3],ins=u[2]>=.25,next=v[2]>=.25;if(ins)clip.push(u);if(ins!==next){let t=(.25-u[2])/(v[2]-u[2]);clip.push([u[0]+(v[0]-u[0])*t,u[1]+(v[1]-u[1])*t,.25]);}}for(let j=1;j<clip.length-1;j++)draw(clip[0],clip[j],clip[j+1],verts[i+3],verts[i+4],verts[i+5]);}for(let y=0;y<H;y++)for(let x=0;x<W;x++){let idx=y*W+x,j=idx*4,iz=zbuf[idx];if(!iz)continue;let depth=1/iz, vx=(x+.5-W/2)*depth/fx,vy=(H*.47-y-.5)*depth/fy;
+function draw(a,b,c,r,gg,bb){let p=project(a),q=project(b),t=project(c),x0=p[0],y0=p[1],x1=q[0],y1=q[1],x2=t[0],y2=t[1];let minx=Math.max(0,Math.floor(Math.min(x0,x1,x2))),maxx=Math.min(W-1,Math.ceil(Math.max(x0,x1,x2))),miny=Math.max(0,Math.floor(Math.min(y0,y1,y2))),maxy=Math.min(H-1,Math.ceil(Math.max(y0,y1,y2)));if(minx>maxx||miny>maxy)return;let den=(y1-y2)*(x0-x2)+(x2-x1)*(y0-y2);if(Math.abs(den)<1e-6)return;let inv=1/den;let fog=1-Math.exp(-Math.max(0,(a[2]+b[2]+c[2])/3)*.00045);let R=(r*(1-fog)+.60*fog)*255,G=(gg*(1-fog)+.76*fog)*255,B=(bb*(1-fog)+.94*fog)*255;for(let y=miny;y<=maxy;y++)for(let x=minx;x<=maxx;x++){let u=((y1-y2)*(x+.5-x2)+(x2-x1)*(y+.5-y2))*inv,v=((y2-y0)*(x+.5-x2)+(x0-x2)*(y+.5-y2))*inv,w=1-u-v;if(u<-.0001||v<-.0001||w<-.0001)continue;let iz=u*p[2]+v*q[2]+w*t[2],idx=y*W+x;if(iz<=zbuf[idx])continue;zbuf[idx]=iz;let j=idx*4;pix[j]=R;pix[j+1]=G;pix[j+2]=B;pix[j+3]=255;}}
+for(const [vb,v0,v1] of lists)for(let i=v0;i<v1;i+=18){let a=[];for(let j=i;j<i+18;j+=6){let x=vb[j]-eye[0],y=vb[j+1]-eye[1],z=vb[j+2]-eye[2];a.push([x*right[0]+y*right[1]+z*right[2],x*up[0]+y*up[1]+z*up[2],x*forward[0]+y*forward[1]+z*forward[2]]);}if(a.every(p=>p[2]<.25))continue;let clip=[];for(let j=0;j<3;j++){let u=a[j],v=a[(j+1)%3],ins=u[2]>=.25,next=v[2]>=.25;if(ins)clip.push(u);if(ins!==next){let t=(.25-u[2])/(v[2]-u[2]);clip.push([u[0]+(v[0]-u[0])*t,u[1]+(v[1]-u[1])*t,.25]);}}for(let j=1;j<clip.length-1;j++)draw(clip[0],clip[j],clip[j+1],vb[i+3],vb[i+4],vb[i+5]);}for(let y=0;y<H;y++)for(let x=0;x<W;x++){let idx=y*W+x,j=idx*4,iz=zbuf[idx];if(!iz)continue;let depth=1/iz, vx=(x+.5-W/2)*depth/fx,vy=(H*.47-y-.5)*depth/fy;
 let wx=eye[0]+vx*right[0]+vy*up[0]+depth*forward[0], wy=eye[1]+vx*right[1]+vy*up[1]+depth*forward[1], wz=eye[2]+vx*right[2]+vy*up[2]+depth*forward[2];let r=pix[j],gg=pix[j+1],b=pix[j+2],green=gg>r*1.28&&gg>b*1.35,grey=Math.abs(r-b)<31&&Math.abs(gg-r)<21&&r>56&&r<184;let n=hash3(Math.floor(wx*(green?4:13)),Math.floor(wy*(green?4:13)),Math.floor(wz*(green?4:13))),big=hash3(Math.floor(wx*.55),Math.floor(wy*.55),Math.floor(wz*.55));let detail=Math.exp(-depth*.009);let f=1+(green?(.46*(n-.5)+.24*(big-.5)):grey?(.24*(n-.5)+.11*(big-.5)):.035*(n-.5))*detail;pix[j]=r*f;pix[j+1]=gg*f;pix[j+2]=b*f;}}
 
 function hash3(x,y,z){let h=Math.imul(x,374761393)+Math.imul(y,668265263)+Math.imul(z,1274126177);h=Math.imul(h^(h>>>13),1274126177);return ((h^(h>>>16))>>>0)/4294967295;}
+// Far level of detail: a low-detail ribbon and treeline for the whole lap, built once. The detailed
+// near scene replaces the ribbon around the car; the far treeline sits beyond the near forest rows.
+const FAR_STEP=2,NEAR_GPU=110,NEAR_CPU=64;let farData=null,farTreeData=null,farSeg=[],farTreeSeg=[],farBuf=null,farTreeBuf=null,farRanges=[];
+function buildFar(){const save=verts,S=Math.ceil(N/FAR_STEP);verts=[];farSeg=[];
+ for(let g=0;g<S;g++){farSeg.push(verts.length/6);const i=g*FAR_STEP,a=track[i%N],b=track[(i+FAR_STEP)%N],gr=.94+rng(i*37)*.13,grass=[.27*gr,.74*gr,.11*gr];
+  roadstrip(a,b,-half,half,paint.road,.04);
+  for(const side of [-1,1]){roadstrip(a,b,side*(half-.45),side*(half-.12),paint.white,.06);roadstrip(a,b,side*half,side*(half+.9),[.78,.70,.42],.0);
+   const bounds=[half+.9,13,40,90,190];for(let q=0;q<bounds.length-1;q++)roadstrip(a,b,side*bounds[q],side*bounds[q+1],grass.map(x=>x*(.92+q*.03+rng(i+q*7)*.08)),-.03);}}
+ farSeg.push(verts.length/6);farData=new Float32Array(verts);verts=[];farTreeSeg=[];
+ for(let g=0;g<S;g++){farTreeSeg.push(verts.length/6);const i=g*FAR_STEP;if(g%2)continue;const a=track[i%N];
+  for(const side of [-1,1]){const seed=i*13+side*7;if(rng(seed)<.18)continue;const dist=side*(66+rng(seed+1)*70),h=13+rng(seed+2)*12,base=wp(a,dist),t=.8+rng(seed+3)*.35;
+   cylinder(base,h*.30,0,h,[.10*t,.36*t,.07*t],5,rng(seed)*3);}}
+ farTreeSeg.push(verts.length/6);farTreeData=new Float32Array(verts);verts=save;
+ if(gl){farBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,farBuf);gl.bufferData(gl.ARRAY_BUFFER,farData,gl.STATIC_DRAW);farTreeBuf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,farTreeBuf);gl.bufferData(gl.ARRAY_BUFFER,farTreeData,gl.STATIC_DRAW);}}
+// Vertex ranges of the far ribbon outside the near window [k-10, k+near).
+function farWindow(k,near){const S=farSeg.length-1,gA=Math.floor(wrap(k-10,N)/FAR_STEP),gB=Math.min(S,Math.ceil(wrap(k+near,N)/FAR_STEP));
+ const r=gA<gB?[[0,gA],[gB,S]]:[[gB,gA]];return r.filter(([x,y])=>y>x).map(([x,y])=>[farSeg[x],farSeg[y]]);}
 let cachedK=-1,cachedScene=[],staticCount=0;let baseK=0;let cameraMode='center';$('camera').onchange=e=>cameraMode=e.target.value;
-function render(){let p=at(s),yaw=p.yaw+heading,sy=Math.sin(yaw),cy=Math.cos(yaw),pitch=Math.atan2(at(s+14).y-at(s-4).y,18)*.65, chase=cameraMode!=='hood',offset=cameraMode==='chase'?1.65:0;let cx=p.x+p.rx*d,cz=p.z+p.rz*d,cyy=ground(p,d);let eye=chase?[cx-sy*8.6+cy*offset,cyy+3.05,cz-cy*8.6-sy*offset]:[cx+sy*.38,cyy+1.36,cz+cy*.38];pitch+=chase?-.075:0;let cameraYaw=p.yaw+heading*.84-Math.atan2(offset,10.5),cs=Math.sin(cameraYaw),cc=Math.cos(cameraYaw);let right=[cc,0,-cs],forward=[cs*Math.cos(pitch),Math.sin(pitch),cc*Math.cos(pitch)],up=cross(forward,right);verts=[];let k=Math.floor(s/step/8)*8;let rebuild=k!==cachedK;if(rebuild){
+function render(){let p=at(s),yaw=p.yaw+heading,sy=Math.sin(yaw),cy=Math.cos(yaw),pitch=Math.atan2(at(s+14).y-at(s-4).y,18)*.65, chase=cameraMode!=='hood',offset=cameraMode==='chase'?1.65:0;let cx=p.x+p.rx*d,cz=p.z+p.rz*d,cyy=ground(p,d);let eye=chase?[cx-sy*8.6+cy*offset,cyy+3.05,cz-cy*8.6-sy*offset]:[cx+sy*.38,cyy+1.36,cz+cy*.38];pitch+=chase?-.075:0;let cameraYaw=p.yaw+heading*.84-Math.atan2(offset,10.5),cs=Math.sin(cameraYaw),cc=Math.cos(cameraYaw);let right=[cc,0,-cs],forward=[cs*Math.cos(pitch),Math.sin(pitch),cc*Math.cos(pitch)],up=cross(forward,right);verts=[];if(!farData)buildFar();let k=Math.floor(s/step/8)*8;let rebuild=k!==cachedK;if(rebuild){
 // Continuous road, sloped terrain strips, geometric roadside objects.
-for(let j=-10;j<(gl?170:70);j++){let i=wrap(k+j,N),a=track[i],b=track[(i+1)%N];let alt=i%2,gr=.94+rng(i*37)*.13,grass=[.27*gr,.74*gr,.11*gr];roadstrip(a,b,-half,half,[.31+(gr-1)*.10,.32+(gr-1)*.10,.355+(gr-1)*.10],.04);
+for(let j=-10;j<(gl?NEAR_GPU:NEAR_CPU);j++){let i=wrap(k+j,N),a=track[i],b=track[(i+1)%N];let alt=i%2,gr=.94+rng(i*37)*.13,grass=[.27*gr,.74*gr,.11*gr];roadstrip(a,b,-half,half,[.31+(gr-1)*.10,.32+(gr-1)*.10,.355+(gr-1)*.10],.04);
 // Subtle wear bands, placed on the road geometry, not on the screen.
 for(let side of [-1,1])roadstrip(a,b,side*1.25,side*1.60,[.26+(gr-1)*.08,.27+(gr-1)*.08,.30+(gr-1)*.08],.046);for(let side of [-1,1]){let bounds=[half,half+.8,8,13,23,40,70,110];for(let q=0;q<bounds.length-1;q++)roadstrip(a,b,side*bounds[q],side*bounds[q+1],q===0?[.78,.70,.42]:grass.map((x,k)=>x*(.95+rng(i*2+q)*.09)),-.025);roadstrip(a,b,side*(half-.20),side*(half-.35),paint.white,.065);if(road.curb(i*step,side))roadstrip(a,b,side*(half+.05),side*(half+1.10),alt?paint.red:paint.white,.09);else roadstrip(a,b,side*(half+.05),side*(half+.22),[.80,.79,.74],.07);rail(a,b,side*8.2);if(i%3===0)marker(a,side,i);if(i%2===0)grassTuft(a,side,i);if(i%2===0)forest(a,side,i,0,j<30);if(i%4===1)forest(a,side,i+5,1,false);if(gl&&j<55&&i%6===3)forest(a,side,i+11,2,false);}}
-cachedK=k;if(gl){gl.bindBuffer(gl.ARRAY_BUFFER,staticBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.STATIC_DRAW);staticCount=verts.length/6;}else cachedScene=verts.slice();}verts=gl?[]:cachedScene.slice();if(chase){let center=wp(p,d,.067),syaw=Math.sin(yaw),cyaw=Math.cos(yaw);for(let j=0;j<24;j++){let pt=t=>[center[0]+Math.cos(t)*1.14*cyaw+Math.sin(t)*2.35*syaw,center[1]+bank(p)*Math.cos(t)*1.14,center[2]-Math.cos(t)*1.14*syaw+Math.sin(t)*2.35*cyaw];tri(center,pt(j*TAU/24),pt((j+1)*TAU/24),[.19,.22,.25],true);}car(p,yaw,d);}else{ // Physical hood mesh, not a screen-space illustration.
+cachedK=k;farRanges=farWindow(k,gl?NEAR_GPU:NEAR_CPU);if(gl){gl.bindBuffer(gl.ARRAY_BUFFER,staticBuffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.STATIC_DRAW);staticCount=verts.length/6;}else cachedScene=verts.slice();}verts=gl?[]:cachedScene.slice();if(chase){let center=wp(p,d,.067),syaw=Math.sin(yaw),cyaw=Math.cos(yaw);for(let j=0;j<24;j++){let pt=t=>[center[0]+Math.cos(t)*1.14*cyaw+Math.sin(t)*2.35*syaw,center[1]+bank(p)*Math.cos(t)*1.14,center[2]-Math.cos(t)*1.14*syaw+Math.sin(t)*2.35*cyaw];tri(center,pt(j*TAU/24),pt((j+1)*TAU/24),[.19,.22,.25],true);}car(p,yaw,d);}else{ // Physical hood mesh, not a screen-space illustration.
 let X=cx,Z=cz,Y=cyy;let lp=(x,y,z)=>[X+x*cy+z*sy,Y+y,Z-x*sy+z*cy];quad(lp(-.95,.68,.95),lp(.95,.68,.95),lp(.83,.45,2.2),lp(-.83,.45,2.2),[.88,.90,.88]);quad(lp(-.95,.68,.95),lp(-.83,.45,2.2),lp(-.9,.40,2.2),lp(-1,.58,.95),[.65,.68,.66]);}
-if(gl){gpuRender(eye,right,up,forward,cameraYaw,pitch);}else {cpuGrid();software(eye,right,up,forward);paintASCII(swimg.data,cameraYaw,pitch);}}
+if(gl){gpuRender(eye,right,up,forward,cameraYaw,pitch);}else {cpuGrid();const S=farSeg.length-1,g0=Math.ceil(wrap(k+NEAR_CPU,N)/FAR_STEP),lists=[[verts,0,verts.length]];
+ for(let g=g0;g<g0+170;g++){const q=g%S;lists.push([farData,farSeg[q]*6,farSeg[q+1]*6],[farTreeData,farTreeSeg[q]*6,farTreeSeg[q+1]*6]);}software(eye,right,up,forward,lists);paintASCII(swimg.data,cameraYaw,pitch);}}
 // Each cell is a real monochrome ASCII font mask. No scene-colored background.
 const cw=4,ch=6,aw=16,ah=24;const glyphCanvas=document.createElement('canvas');const glyphCtx=glyphCanvas.getContext('2d',{willReadFrequently:true});
 const candidates=' .,:;-=+*oxX#%@';
 function drawGlyph(c){glyphCtx.clearRect(0,0,aw,ah);glyphCtx.font='bold 24px monospace';glyphCtx.textBaseline='middle';glyphCtx.textAlign='center';glyphCtx.fillStyle='#fff';glyphCtx.fillText(c,aw/2,ah/2+.2);return glyphCtx.getImageData(0,0,aw,ah).data;}
 glyphCanvas.width=aw;glyphCanvas.height=ah;const sorted=[...candidates].map(c=>({c,coverage:drawGlyph(c).filter((_,i)=>i%4===3).reduce((a,b)=>a+b,0)})).sort((a,b)=>a.coverage-b.coverage);const ramp=sorted.map(o=>o.c).join('');glyphCanvas.width=aw*ramp.length;glyphCanvas.height=ah;glyphCtx.font='bold 24px monospace';glyphCtx.textBaseline='middle';glyphCtx.textAlign='center';glyphCtx.fillStyle='#fff';for(let i=0;i<ramp.length;i++)glyphCtx.fillText(ramp[i],i*aw+aw/2,ah/2+.2);
 const levels=[[320,120],[480,180],[640,240],[800,300],[960,360]],modeNames=['color','raw','pure','mono','white'];let skyProgram,skyLoc;let level=2,autoLevel=2,gridW=0,gridH=0,post,postLoc={},quadBuffer,sceneTex,depthRB,fbo,atlas;let fps=0,frameCount=0,measureAt=performance.now(),lastAdjust=measureAt,slowWindows=0,fastWindows=0,renderMs=0;
-function setGrid(next){level=next;let [w,h]=levels[next];if(w===gridW&&h===gridH)return;gridW=w;gridH=h;gl.bindTexture(gl.TEXTURE_2D,sceneTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);gl.bindRenderbuffer(gl.RENDERBUFFER,depthRB);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,w,h);gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('ASCII framebuffer incomplete');gl.bindFramebuffer(gl.FRAMEBUFFER,null);}
-if(gl){try{sceneTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,sceneTex);for(let [key,val] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,key,val);depthRB=gl.createRenderbuffer();fbo=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,sceneTex,0);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,depthRB);setGrid(level);
+function setGrid(next){level=next;let [w,h]=levels[next];if(w===gridW&&h===gridH)return;gridW=w;gridH=h;gl.bindTexture(gl.TEXTURE_2D,sceneTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);gl.bindRenderbuffer(gl.RENDERBUFFER,depthRB);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_STENCIL,w,h);gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('ASCII framebuffer incomplete');gl.bindFramebuffer(gl.FRAMEBUFFER,null);}
+if(gl){try{sceneTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,sceneTex);for(let [key,val] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,key,val);depthRB=gl.createRenderbuffer();fbo=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,sceneTex,0);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_STENCIL_ATTACHMENT,gl.RENDERBUFFER,depthRB);setGrid(level);
  atlas=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,atlas);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,glyphCanvas);for(let [key,val] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,key,val);
  post=gl.createProgram();gl.attachShader(post,shader(gl.VERTEX_SHADER,`attribute vec2 p; varying vec2 uv; void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}`));gl.attachShader(post,shader(gl.FRAGMENT_SHADER,`precision highp float; varying vec2 uv;uniform sampler2D scene, glyphs;uniform vec2 grid;uniform float yaw,pitch,mode;
  void main(){vec2 cell=floor(uv*grid),at=(cell+.5)/grid;vec3 c=texture2D(scene,at).rgb;
@@ -471,8 +502,8 @@ if(gl){try{sceneTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,sceneTex);fo
 void main(){vec2 at=uv;vec3 c;float yy=1.-at.y;float f=clamp((yy+pitch*.36)/.64,0.,1.);float az=yaw+atan((at.x-.5)/.59);float el=(.47-yy)*.75+pitch;vec2 p=vec2(az*5.,el*12.);float cloud=clamp((.65*n(p)+.25*n(p*2.1)+.1*n(p*4.4)-.48)*6.5,0.,1.)*clamp((el+.07)*10.,0.,1.);c=mix(mix(vec3(.08,.40,.88),vec3(.55,.75,.97),f),vec3(1.,1.,.98),cloud);gl_FragColor=vec4(c,1.);}`));gl.linkProgram(skyProgram);if(!gl.getProgramParameter(skyProgram,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(skyProgram));skyLoc={p:gl.getAttribLocation(skyProgram,'p'),yaw:gl.getUniformLocation(skyProgram,'yaw'),pitch:gl.getUniformLocation(skyProgram,'pitch')};}catch(e){useCPU(e);autoLevel=2;}}
 function gpuRender(eye,right,up,forward,yaw,pitch){let q=$('quality').value;setGrid(q==='auto'?autoLevel:Number(q));let width=Math.min(3840,Math.max(gridW*4,Math.round(raster.clientWidth*(window.devicePixelRatio||1))));width=Math.round(width/16)*16;let height=width*9/16;if(raster.width!==width||raster.height!==height){raster.width=width;raster.height=height;}
  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.viewport(0,0,gridW,gridH);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.disable(gl.DEPTH_TEST);gl.useProgram(skyProgram);gl.bindBuffer(gl.ARRAY_BUFFER,quadBuffer);gl.enableVertexAttribArray(skyLoc.p);gl.vertexAttribPointer(skyLoc.p,2,gl.FLOAT,false,0,0);gl.uniform1f(skyLoc.yaw,yaw);gl.uniform1f(skyLoc.pitch,pitch);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.disableVertexAttribArray(skyLoc.p);gl.useProgram(program);gl.enable(gl.DEPTH_TEST);gl.uniform3fv(loc.uEye,eye);gl.uniform3fv(loc.uRight,right);gl.uniform3fv(loc.uUp,up);gl.uniform3fv(loc.uForward,forward);gl.uniform2f(loc.uFocal,1.18,1.18*16/9);
- function draw(buf,count){gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(loc.aPosition);gl.vertexAttribPointer(loc.aPosition,3,gl.FLOAT,false,24,0);gl.enableVertexAttribArray(loc.aColor);gl.vertexAttribPointer(loc.aColor,3,gl.FLOAT,false,24,12);gl.drawArrays(gl.TRIANGLES,0,count);}
- draw(staticBuffer,staticCount);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.DYNAMIC_DRAW);draw(buffer,verts.length/6);gl.disableVertexAttribArray(loc.aPosition);gl.disableVertexAttribArray(loc.aColor);
+ function draw(buf,count,first=0){if(count<=0)return;gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.enableVertexAttribArray(loc.aPosition);gl.vertexAttribPointer(loc.aPosition,3,gl.FLOAT,false,24,0);gl.enableVertexAttribArray(loc.aColor);gl.vertexAttribPointer(loc.aColor,3,gl.FLOAT,false,24,12);gl.drawArrays(gl.TRIANGLES,first,count);}
+ draw(staticBuffer,staticCount);if(farBuf){for(const [a,b] of farRanges)draw(farBuf,b-a,a);draw(farTreeBuf,farTreeData.length/6);}gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.DYNAMIC_DRAW);draw(buffer,verts.length/6);gl.disableVertexAttribArray(loc.aPosition);gl.disableVertexAttribArray(loc.aColor);
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,raster.width,raster.height);gl.disable(gl.DEPTH_TEST);gl.useProgram(post);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,sceneTex);gl.uniform1i(postLoc.scene,0);gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,atlas);gl.uniform1i(postLoc.glyphs,1);gl.uniform2f(postLoc.grid,gridW,gridH);gl.uniform1f(postLoc.yaw,yaw);gl.uniform1f(postLoc.pitch,pitch);gl.uniform1f(postLoc.mode,modeNames.indexOf($('mode').value));gl.bindBuffer(gl.ARRAY_BUFFER,quadBuffer);gl.enableVertexAttribArray(postLoc.p);gl.vertexAttribPointer(postLoc.p,2,gl.FLOAT,false,0,0);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);gl.disableVertexAttribArray(postLoc.p);gl.activeTexture(gl.TEXTURE0);
 }
 raster.addEventListener('webglcontextlost',e=>{e.preventDefault();useCPU('WebGL context lost');cachedK=-1;autoLevel=1;lastState='';});
@@ -517,7 +548,8 @@ function hud(){const kmh=Math.round(v*3.6),gear=carState.reverse?'R':carState.ge
  const status=paused?span('amb','PAUSED'):active&&performance.now()<goAt?'ROLLING START':carState.invalid?span('red','INVALID · '+carState.reason):carState.contact?span('red','BARRIER CONTACT'):carState.airborne?span('amb','LIGHT · CREST'):carState.surface&&carState.surface.filter(x=>x===2).length>=2?span('amb','GRASS'):(ranked?'RANKED':'PRACTICE');
  $('hudMain').innerHTML=`<span class="big">${padS(kmh,3)}</span> km/h  ${span('acc','G'+gear)}\n${rpmBar(carState.rpm||0)} ${padS(Math.round(carState.rpm||0),4)}\n${span('acc',time(elapsed))}${pen}\n${padS(Math.floor(dist),5)} / ${raceConfig.length.toFixed(0)} m  ${esc(corner.toUpperCase())}\n${status}`;
  const gm=gMeter(),gTot=Math.sqrt((carState.ax||0)**2+(carState.ay||0)**2)/9.81;
- $('hudCar').innerHTML=`TYRES        G ${gTot.toFixed(2)}\n${tyreCell(0)} ${tyreCell(1)}  ${gm[0]}\n             ${gm[1]}\n             ${gm[2]}\n${tyreCell(2)} ${tyreCell(3)}  ${gm[3]}\n             ${gm[4]}`;
+ const bt=carState.bt||[0,0,0,0],tf=Math.max(bt[0],bt[1]),tr=Math.max(bt[2],bt[3]),tcol=t=>t>720?'red':t>600?'amb':t<120?'muted':'acc';
+ $('hudCar').innerHTML=`DISC F ${span(tcol(tf),padS(Math.round(tf),3)+'C')} R ${span(tcol(tr),padS(Math.round(tr),3)+'C')}\nTYRES        G ${gTot.toFixed(2)}\n${tyreCell(0)} ${tyreCell(1)}  ${gm[0]}\n             ${gm[1]}\n             ${gm[2]}\n${tyreCell(2)} ${tyreCell(3)}  ${gm[3]}\n             ${gm[4]}`;
  const flag=(on,t)=>on?span('acc',t):span('muted',t),k=Math.round(clamp(carState.steer,-1,1)*4)+4;
  const absOn=carState.abs&&carState.abs.some(x=>x<.97),tcOn=carState.tc<.97,psmOn=(carState.psm||0)>.02;
  $('hudPed').innerHTML=`THR [${span('acc','#'.repeat(Math.round(carState.gas*10)).padEnd(10,'.'))}]\nBRK [${span('red','#'.repeat(Math.round(carState.brake*10)).padEnd(10,'.'))}]\nSTR [${Array.from({length:9},(_,i)=>i===k?span('acc','#'):i===4?'|':'-').join('')}]\n${flag(absOn,'ABS')} ${flag(tcOn,'TC')} ${flag(psmOn,'PSM')} ${flag(carState.reverse,'REV')}`;

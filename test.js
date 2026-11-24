@@ -32,6 +32,15 @@ const straight = R.circuit({ step: 6, points: Array.from({ length: 6000 }, (_, i
 { const c = flat(100 / 3.6), a = R.initial(c), s0 = a.s; while (a.vx > .2) R.step(a, 2, c, straight); const dist = a.s - s0;
   assert(dist > 24 && dist < 36, '100-0 ' + dist); ok(`100-0 km/h in ${dist.toFixed(1)} m with ABS`); }
 
+// Brakes: ABS keeps every wheel turning, straight-line stop stays straight, repeated stops heat the discs
+{ const c = flat(250 / 3.6), a = R.initial(c); let locked = false;
+  while (a.vx > .3) { R.step(a, 2, c, straight); if (a.vx > 8 && a.w.some((w, i) => w * (i < 2 ? R.CAR.tyreF.radius : R.CAR.tyreR.radius) < a.vx * .6)) locked = true; }
+  assert(!locked, 'ABS let a wheel lock'); assert(Math.abs(a.heading) < 1e-3 && Math.abs(a.d) < .05, 'straight-line stop drifted');
+  const b = R.initial(c), dists = [];
+  for (let n = 0; n < 6; n++) { while (b.vx < 250 / 3.6) R.step(b, 1, c, straight); const s0 = b.s; while (b.vx > 80 / 3.6) R.step(b, 2, c, straight); dists.push(b.s - s0); }
+  assert(b.bt[0] > R.CAR.brakeTemp0 + 100, 'discs heat up'); assert(Math.max(...dists) - Math.min(...dists) < 6, 'consistent stops without fade at road-car temps');
+  ok(`ABS no lock-up, straight stop; 6 x 250-80 km/h stops ${dists.map(d => d.toFixed(0)).join('/')} m, front disc ${b.bt[0].toFixed(0)} C`); }
+
 // Every daily sector: reference driver finishes cleanly; the server replay reproduces the exact time
 for (let i = 0; i < R.sectors.length; i++) {
   const c = [...Array(7)].map((_, k) => R.challenge('2026-12-0' + (k + 1))).find(x => x.number === i + 1);
@@ -73,7 +82,7 @@ ok('invalid replays rejected');
 
 // Reverse: stop, hold brake, the car backs up; throttle at standstill returns to forward drive
 { const c = R.challenge('2026-11-24'), a = R.initial(c);
-  for (let i = 0; i < 120 * 3; i++) R.step(a, 2, c, road); assert(a.reverse && a.vx < -.3, 'reverse ' + a.vx);
+  for (let i = 0; i < 120 * 4; i++) R.step(a, 2, c, road); assert(a.reverse && a.vx < -.3, 'reverse ' + a.vx);
   for (let i = 0; i < 240 && !a.done; i++) R.step(a, 1, c, road); assert(!a.reverse && a.vx > 1);
   ok('reverse gear engages from standstill and releases'); }
 console.log('All tests passed');

@@ -32,7 +32,7 @@ const CAR={
  frontWeight:.39,      // est: rear-engined 992 GT3 static distribution ~39/61
  cgHeight:.42,         // est
  yawInertia:2350,      // est, kg m^2
- rollFront:.46,        // est: front share of roll stiffness
+ rollFront:.50,        // est: front share of roll stiffness (stable, slightly understeering balance)
  tyreF:{radius:.350,width:.275,inertia:1.15}, // 275/35 ZR20
  tyreR:{radius:.367,width:.335,inertia:1.45}, // 335/30 ZR21
  // Engine: 386 kW at 8500 rpm, 465 Nm at 6300 rpm, 9000 rpm limit (published). Intermediate curve points est.
@@ -42,14 +42,17 @@ const CAR={
  // Aero: 409 kg at 200 km/h and 860 kg at 285 km/h (published) -> ~1.33 N/(m/s)^2.
  // cd x A 0.862 m^2 published (low-drag/DRS); 0.95 est for the high-downforce track setting -> ~296 km/h.
  downforce:1.33, aeroFront:.42, dragArea:.95, airDensity:1.225, rolling:.011,
- brakeF:4300, brakeR:2150, // est max torque per wheel, N m (408/380 mm discs)
- mu:1.46, muLoadSens:.085, loadRef:4000, peakSlip:.105, peakRatio:.11, // est: Cup 2 R dry
+ brakeF:4300, brakeR:2350, // est max torque per wheel, N m (408/380 mm discs): ~65% front brake force
+ brakeLag:.045,       // s, hydraulic + pad response
+ discHeat:5200,       // est J/K per corner (disc, pad, caliper share); steel discs
+ brakeTemp0:260,      // degC at a rolling start
+ mu:1.46, muLoadSens:.07, loadRef:4000, peakSlip:.12, peakRatio:.11, // est: Cup 2 R dry
  maxSteer:.43, rearSteer:.035
 };
 
 const SUB=4,HZ=120,DT=1/HZ,H=DT/SUB,G=9.81,HALF=4.7,WALL=8.05,PENALTY_LINE=HALF+.55;
 const L=20822.565;   // must equal track.json length
-const MF_B=2.07,MF_C=1.4; // magic-formula shape with peak at normalised slip 1, ~0.81 sliding ratio
+const MF_B=2.646,MF_C=1.3; // magic-formula shape: peak at normalised slip 1, ~0.89 sliding ratio (progressive breakaway)
 
 // ---- Track ----
 function circuit(raw){
@@ -87,6 +90,9 @@ function challenge(date){const day=typeof date==='string'?date:new Date().toISOS
  return {day,id:VERSION+'-'+day,number:i+1,...sectors[i],car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(sectors[i].length)};}
 function fullLap(){return {day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(L),practiceOnly:true};}
 
+// ---- Brakes: pad friction vs disc temperature (cold bite, plateau, fade above ~720 degC) ----
+function padMu(t){if(t<120)return .80+.20*t/120;if(t<720)return 1;return Math.max(.55,1-(t-720)/950);}
+
 // ---- Engine ----
 function engineTorque(rpm){const t=CAR.torque;if(rpm<=t[0][0])return t[0][1];for(let i=1;i<t.length;i++)if(rpm<=t[i][0]){const a=t[i-1],b=t[i];return a[1]+(b[1]-a[1])*(rpm-a[0])/(b[0]-a[0]);}return 0;}
 const gearRatio=g=>CAR.ratios[g-1]*CAR.finalDrive;
@@ -111,7 +117,7 @@ function decode(code){if(code<ANALOG)return {analog:false,gas:code&1?1:0,brake:c
 function encodeAnalog(steer,gas,brake){return ANALOG+Math.round(clamp(steer,-1,1)*127+127)+255*(Math.round(clamp(gas,0,1)*15)+16*Math.round(clamp(brake,0,1)*15));}
 
 function initial(c){const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<7&&rpmFor(wr,gear)>7600)gear++;
- return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
+ return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
   load:[0,0,0,0],psm:0,slip:[0,0,0,0],surface:[0,0,0,0],ticks:0,offTicks:0,contact:false,invalid:false,done:false,time:null,reason:'',maxSpeed:v,penalty:0,wallTicks:0,collisions:0,lastContact:-10000,cornerSpeed:90,impact:0,airborne:false};}
 
 // Corner-speed estimate for HUD cues and the test driver: grip + aero limited, braking-distance aware.
@@ -142,7 +148,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   // Steering: speed-dependent limit near the front tyres' peak slip (keyboard aid), plus self-alignment
   const uu=Math.max(u,3),aLat=CAR.mu*(G+CAR.downforce*u*u/m)*.92,kin=L_*aLat/(uu*uu),lim=clamp(kin+CAR.peakSlip*1.15,.07,CAR.maxSteer);
   const betaF=atan((v+r*A)/uu),align=clamp(betaF*.7,-lim,lim),mag=Math.abs(a.steer);
-  const delta=inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align;
+  const beta=atan(v/uu),sliding=Math.abs(beta)>.04&&sgn(beta)===-sgn(r)&&u>6;
+  // Steering assist (as in arcade-sim racers on keyboard/pad): when the rear steps out, add countersteer.
+  const counter=sliding?clamp(beta*(inp.analog?.45:.3),-.16,.16):0;
+  const delta=(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter;
   a.delta=delta;
   const rs=clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer);
   // Loads: static (with crests/compressions and grade), aero, transfer
@@ -162,9 +171,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const lock=clamp((a.w[2]-a.w[3])*650,-(140+.35*Math.abs(axle)),140+.35*Math.abs(axle));
   // PSM (stability control): when sideslip and yaw exceed what the steering asks for, cut torque and
   // brake the outer front wheel to create a stabilising yaw moment.
-  const beta=atan(v/uu),rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.045&&sgn(beta)===-sgn(r)&&u>8;
-  const psm=over?clamp((Math.abs(beta)-.045)*9+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
+  const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.035&&sgn(beta)===-sgn(r)&&u>8;
+  const psm=over?clamp((Math.abs(beta)-.035)*9+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
   const psmWheel=r>0?0:1; // turning right -> outer (left) front
+  a.bp+=(pedalBrake-a.bp)*Math.min(1,H/CAR.brakeLag);
   let Fx=0,Fy=0,Mz=0,tcSlip=0;
   for(let i=0;i<4;i++){
    const W=TW[i],front=i<2,ty=front?CAR.tyreF:CAR.tyreR,R=ty.radius,st=front?delta:rs;
@@ -176,14 +186,17 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
    tyre(kappa,ta,fz[i],tyreOut);
    const fx=tyreOut.fx,fy=tyreOut.fy;const nk=kappa/CAR.peakRatio,na=ta/CAR.peakSlip;a.slip[i]=Math.sqrt(nk*nk+na*na);a.load[i]=fz[i];
    // ABS per wheel, TC on driven wheels
-   if(kappa<-CAR.peakRatio*1.15&&pedalBrake>.05)a.abs[i]=Math.max(.15,a.abs[i]-H*14);else a.abs[i]=Math.min(1,a.abs[i]+H*7);
-   if(!front&&kappa>CAR.peakRatio*1.25)tcSlip=1;
+   const target=-CAR.peakRatio*(front?.95:.82); // ABS slip target; lower at the rear (EBD) for stability
+   if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
+   else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
+   if(!front&&kappa>CAR.peakRatio*1.15)tcSlip=1;
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
    const I=ty.inertia+(front?0:reflected),drive=front?0:axle/2+(i===2?-lock:lock);
-   const brakeT=Math.min(1,pedalBrake+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i],roll=CAR.rolling*fz[i]*R;
+   const brakeT=Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]),roll=CAR.rolling*fz[i]*R;
    let w=a.w[i];const net=drive-fx*R,dw=H*net/(I+H*tyreOut.dfx*R*R/den);w+=dw;
    const bt=(brakeT+roll)*H/I;if(w>0)w=Math.max(0,w-bt);else w=Math.min(0,w+bt);
    if(!a.reverse&&w<0&&tu>=0)w=0;a.w[i]=w;
+   a.bt[i]+=H*(brakeT*Math.abs(w)*.92-(9+1.7*Math.abs(u))*(a.bt[i]-20))/CAR.discHeat; // heat in, convective cooling out
    // tyre forces to body frame
    const bx=fx*cd-fy*sd,by=fx*sd+fy*cd;Fx+=bx;Fy+=by;Mz+=W.x*by-W.y*bx;
   }
@@ -203,9 +216,9 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   for(let j=0;j<CORNERS.length;j++){const [x,y]=CORNERS[j],dc=a.d+x*sn3+y*cs3,pen=Math.abs(dc)-WALL;if(pen>deep){deep=pen;ci=j;cside=sgn(dc);}}
   if(ci>=0){const [x,y]=CORNERS[ci];a.d-=cside*deep;const nx=-cside*sn3,ny=-cside*cs3;
    const pu=a.vx-a.yawRate*y,pv=a.vy+a.yawRate*x,vn=pu*nx+pv*ny;
-   if(vn<0){const tn=x*ny-y*nx,J=-(1.25*vn)/(1/m+tn*tn/Iz);a.vx+=J*nx/m;a.vy+=J*ny/m;a.yawRate+=J*tn/Iz;
-    const tx=-ny,tyy=nx,vt=pu*tx+pv*tyy,tt=x*tyy-y*tx,Jt=clamp(-vt/(1/m+tt*tt/Iz),-.35*J,.35*J);a.vx+=Jt*tx/m;a.vy+=Jt*tyy/m;a.yawRate+=Jt*tt/Iz;
-    impact=Math.max(impact,-vn);}
+   if(vn<0){const tn=x*ny-y*nx,J=-(1.12*vn)/(1/m+tn*tn/Iz);a.vx+=J*nx/m;a.vy+=J*ny/m;a.yawRate+=J*tn/Iz;
+    const tx=-ny,tyy=nx,vt=pu*tx+pv*tyy,tt=x*tyy-y*tx,Jt=clamp(-vt/(1/m+tt*tt/Iz),-.2*J,.2*J);a.vx+=Jt*tx/m;a.vy+=Jt*tyy/m;a.yawRate+=Jt*tt/Iz;
+    impact=Math.max(impact,-vn);a.yawRate*=.75;}
    contactNow=true;}
   if(a.s>=c.start+c.length&&!a.done){a.done=true;a.time=(a.ticks+(sub+clamp((c.start+c.length-before)/Math.max(a.s-before,1e-6),0,1))/SUB)/HZ+a.penalty;break;}
  }

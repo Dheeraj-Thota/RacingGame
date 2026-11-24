@@ -112,12 +112,14 @@ Use durable database storage and HTTPS for a hosted instance. Do not expose this
 - Combined-slip tyre forces (Magic Formula shape on normalised slip), load-sensitive grip, kerb/verge/grass surfaces per wheel.
 - Longitudinal and lateral load transfer with damper lag; crests and compressions change tyre load using the track's real elevation profile.
 - Wheel spin per wheel, reflected engine inertia, limited-slip rear differential, rev limiter, engine braking, automatic PDK shifting, reverse.
-- ABS, traction control, PSM-style stability control, rear-axle steering and a keyboard steering limiter. These are identical for all drivers.
+- Brakes: hydraulic pressure lag, ~65% front brake force, slip-target ABS per wheel with a lower rear target (EBD) for stability, and disc temperature (heat in from brake power, speed-dependent cooling) driving pad friction: cold bite below ~120 °C, fade above ~720 °C.
+- ABS, traction control, PSM-style stability control, rear-axle steering, a keyboard steering limiter and a countersteer aid when the rear steps out. These are identical for all drivers.
+- Handling balance aims for the approachable, progressive feel of arcade-sim racers such as Forza Horizon: a gentle tyre breakaway past the peak and forgiving barrier contact. At the grip limit, peak sideslip under full power is about 10–11° (21° in the previous tuning) and under trail-braking about 3° (6°).
 - Barriers use rigid-body impulses at the car's corners.
 
 Published 992 GT3 RS figures used: 1450 kg DIN (+75 kg driver), 2457 mm wheelbase, 1630/1582 mm tracks, 275/35 R20 and 335/30 R21 tyres, 386 kW at 8500 rpm, 465 Nm at 6300 rpm, 9000 rpm, PDK ratios 3.75/2.38/1.72/1.34/1.11/0.96/0.84 with 4.27 final drive, 409 kg downforce at 200 km/h and 860 kg at 285 km/h. Weight distribution, CG height, inertias, roll stiffness split, intermediate torque-curve points, brake torque and tyre coefficients are estimates and are marked as such in the code.
 
-Calibration (`node tools/calibrate.js`): 0–100 km/h 3.7 s (published 3.2), 0–200 km/h 11.1 s (10.6), top speed 293 km/h (296), 100–0 km/h 27 m, about 1.45 g steady-state lateral grip. A quasi-steady lap estimate for this model is about 7:08 on the centreline and 6:47 on a basic racing line, against the real car's 6:49.3. These are model checks, not validation against telemetry, and no human playtesting has been done on this version.
+Calibration (`node tools/calibrate.js`): 0–100 km/h 3.7 s (published 3.2), 0–200 km/h 11.1 s (10.6), top speed 293 km/h (296), 100–0 km/h 28 m, 250–0 km/h 142 m, about 1.45 g steady-state lateral grip. A quasi-steady lap estimate for this model is about 7:08 on the centreline and 6:47 on a basic racing line, against the real car's 6:49.3. These are model checks, not validation against telemetry, and no human playtesting has been done on this version.
 
 Only exactly-rounded arithmetic is used in the simulation (its own polynomial sin/cos/atan replace `Math` trig, whose results can differ between JavaScript engines), so browser and server replays match bit for bit.
 
@@ -131,7 +133,7 @@ Subscriptions, account entitlements and payment processing are not implemented i
 
 `npm test` checks track length, direction, elevation and grades; that `index.html` is current; trig accuracy; acceleration, top speed and braking against published figures; a clean reference-driver run with bit-identical replay on every sector (analogue and keyboard input); a full lap; input validation; steering return-to-centre; barrier contact without tunnelling; and reverse. Automated tests do not substitute for human driving and cross-device testing.
 
-The renderer targets 60 FPS through adaptive detail. Actual performance depends on graphics hardware, browser and selected resolution. Maximum-detail GPU performance is not verified.
+The renderer draws a detailed scene for roughly the next 650 m and a low-detail road, verge and treeline for the whole lap beyond it, so long sightlines reach the horizon. The renderer targets 60 FPS through adaptive detail. Actual performance depends on graphics hardware, browser and selected resolution. Maximum-detail GPU performance is not verified.
 
 ## Asset fidelity and licensing
 
