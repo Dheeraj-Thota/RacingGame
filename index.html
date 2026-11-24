@@ -276,9 +276,9 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
  else{a.gas+=(inp.gas-a.gas)*Math.min(1,DT*10);a.brake+=(inp.brake-a.brake)*Math.min(1,DT*14);
   const v=Math.max(a.vx,0),rate=(inp.steer?2.6:4.2)/(1+v/38);let t=inp.steer;
   a.steer+=clamp(t-a.steer,-rate*DT,rate*DT);}
- // Reverse: hold the brake at a standstill for 0.5 s; press the throttle at a standstill to go forward again.
+ // Reverse: keep holding the brake once stopped (0.12 s); press the throttle at a standstill to go forward again.
  const still=Math.abs(a.vx)<.8;
- if(!a.reverse){a.revHold=still&&inp.brake>.9&&inp.gas<.1?a.revHold+DT:0;if(a.revHold>=.5){a.reverse=true;a.revHold=0;}}
+ if(!a.reverse){a.revHold=still&&inp.brake>.9&&inp.gas<.1?a.revHold+DT:0;if(a.revHold>=.12){a.reverse=true;a.revHold=0;}}
  else if(still&&inp.gas>.5&&inp.brake<.1)a.reverse=false;
  const pedalGas=a.reverse?a.brake:a.gas,pedalBrake=a.reverse?a.gas:a.brake;
  const m=CAR.mass,Iz=CAR.yawInertia,L_=CAR.wheelbase,h=CAR.cgHeight;let contactNow=false,impact=0;
@@ -301,7 +301,7 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   a.airborne=fz[0]+fz[1]+fz[2]+fz[3]<m*G*.15;
   // Drivetrain
   const g=a.gear,gr=a.reverse?-3.42*CAR.finalDrive:gearRatio(g),wr=(a.w[2]+a.w[3])/2,rpmWheels=wr*gr*60/TAU;
-  let rpm=rpmWheels,thr=a.reverse?Math.min(pedalGas,.35):pedalGas*(1-pedalBrake*.85);
+  let rpm=rpmWheels,thr=a.reverse?(a.vx<-7?0:Math.min(pedalGas,.75)):pedalGas*(1-pedalBrake*.85);
   if(rpmWheels<2600&&thr>.05)rpm=Math.max(rpmWheels,2600+thr*1800); // clutch slip at very low road speed
   rpm=Math.max(rpm,CAR.idle);a.rpm=rpm;
   const limiter=rpm>=CAR.redline?0:1,tq=thr*engineTorque(rpm)*limiter*a.tc*(1-psmCut(a))-(1-thr)*(22+.0052*rpm);
