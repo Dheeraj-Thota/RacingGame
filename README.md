@@ -62,7 +62,7 @@ The current development build leaves practice unlocked for testing.
 | Component | Implementation |
 | --- | --- |
 | Client | Standalone HTML, CSS and JavaScript; embedded track and simulation data |
-| Renderer | 3D triangle geometry, perspective projection, depth, colored glyph rendering; WebGL with software fallback |
+| Renderer | 3D triangle geometry, perspective projection, depth, smooth-shaded bodywork; scene rendered at 2x and drawn through glyph masks over the shaded image ("ASCII 3D") or on black ("ASCII classic"); WebGL with software fallback |
 | Simulation | Shared 120 Hz fixed-step (4 substeps) four-wheel vehicle model, deterministic input replay |
 | Track | GPS-derived centreline with real elevation, 44 named corner ranges, approximate kerbs |
 | Server | Node.js HTTP, JSON endpoints, anonymous cookie identity |

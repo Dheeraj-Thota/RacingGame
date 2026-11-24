@@ -10,6 +10,11 @@
 - [ ] Measure frame pacing and target 60 FPS across representative desktop and mobile hardware; retain clear ASCII glyphs at every quality setting.
 - [ ] Simplify and validate the complete home → attempt → result flow, including interruption and recovery.
 
+## Next — Garage and tracks (requested)
+
+- [ ] Garage: choose between cars (e.g. a generic open-wheel single-seater alongside the Kestrel RS). Physics already reads every car figure from one `CAR` object; make it a per-challenge, versioned setting so replays stay valid.
+- [ ] Additional tracks: generalise `tools/build-track.js` and sector definitions per circuit; keep licensing notes per track.
+
 ## P1 — Daily competition
 
 - [ ] Version daily challenge configurations, physics and replay formats.

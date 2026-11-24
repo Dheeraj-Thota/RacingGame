@@ -5,7 +5,8 @@
  *  - quasi-static longitudinal/lateral load transfer with damper lag, crest/compression loads from real elevation
  *  - wheel spin dynamics per wheel, reflected engine inertia, limited-slip rear differential
  *  - published 992 GT3 RS figures: mass, wheelbase, tracks, tyre sizes, power/torque peaks, PDK ratios, aero
- *  - ABS, traction control and rear-axle steering (fixed for every driver), keyboard steering limiter
+ *  - rear-wheel drive; ABS, permissive traction control (throttle oversteer is possible), PSM-style stability
+ *    control and rear-axle steering (fixed for every driver), keyboard steering limiter
  *
  * Determinism: only +, -, *, /, sqrt, floor, round, abs, min, max are used inside the simulation.
  * Those are exactly specified by IEEE 754 in every JavaScript engine; Math.sin/atan2/exp are not, so
@@ -150,7 +151,7 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const betaF=atan((v+r*A)/uu),align=clamp(betaF*.7,-lim,lim),mag=Math.abs(a.steer);
   const beta=atan(v/uu),sliding=Math.abs(beta)>.04&&sgn(beta)===-sgn(r)&&u>6;
   // Steering assist (as in arcade-sim racers on keyboard/pad): when the rear steps out, add countersteer.
-  const counter=sliding?clamp(beta*(inp.analog?.45:.3),-.16,.16):0;
+  const counter=sliding?clamp(beta*(inp.analog?.3:.22),-.14,.14):0;
   const delta=(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter;
   a.delta=delta;
   const rs=clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer);
@@ -171,8 +172,8 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const lock=clamp((a.w[2]-a.w[3])*650,-(140+.35*Math.abs(axle)),140+.35*Math.abs(axle));
   // PSM (stability control): when sideslip and yaw exceed what the steering asks for, cut torque and
   // brake the outer front wheel to create a stabilising yaw moment.
-  const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.035&&sgn(beta)===-sgn(r)&&u>8;
-  const psm=over?clamp((Math.abs(beta)-.035)*9+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
+  const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.065&&sgn(beta)===-sgn(r)&&u>8;
+  const psm=over?clamp((Math.abs(beta)-.065)*7+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
   const psmWheel=r>0?0:1; // turning right -> outer (left) front
   a.bp+=(pedalBrake-a.bp)*Math.min(1,H/CAR.brakeLag);
   let Fx=0,Fy=0,Mz=0,tcSlip=0;
@@ -189,7 +190,7 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
    const target=-CAR.peakRatio*(front?.95:.82); // ABS slip target; lower at the rear (EBD) for stability
    if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
    else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
-   if(!front&&kappa>CAR.peakRatio*1.15)tcSlip=1;
+   if(!front&&kappa>CAR.peakRatio*1.45)tcSlip=1;
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
    const I=ty.inertia+(front?0:reflected),drive=front?0:axle/2+(i===2?-lock:lock);
    const brakeT=Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]),roll=CAR.rolling*fz[i]*R;
