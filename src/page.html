@@ -35,7 +35,7 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
 .racing .hud{display:block}
 #hudMain{left:10px;top:10px}#hudMain .big{font-size:34px;line-height:1;color:#fff}
 #map{right:10px;top:10px;font-size:9px;line-height:1}
-#hudCar{left:10px;bottom:22px}#delta{font-size:16px}#hudNext{left:50%;top:44px;transform:translateX(-50%);text-align:center;font-size:14px;line-height:1.2;padding:4px 12px}#hudNext:empty{display:none}#hudNext .arrow{font-size:20px;font-weight:bold;color:var(--accent)}#hudPed{right:10px;bottom:22px;text-align:right}
+#hudCar{left:10px;bottom:22px}#delta{font-size:16px}#menu{position:absolute;left:14px;bottom:14px;z-index:3;background:#0b1011d8;padding:12px 16px 10px;min-width:300px;font-size:13px;line-height:1.5}#menu .mtitle{color:var(--accent);letter-spacing:.12em;font-size:11px;margin-bottom:4px}#menu .mrow{display:flex;align-items:center;gap:10px}#menu .mlab{color:var(--muted);width:6ch;font-size:11px}#menu b{color:#fff;font-weight:normal;min-width:15ch;text-align:center;font-size:15px}#menu .arrow{padding:2px 6px;color:var(--accent);font-size:16px}#menu .arrow:before,#menu .arrow:after{content:none}#menu .mnote{color:var(--muted);font-size:11px;min-height:1.5em}#menu .mbtns{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}@media(max-width:700px){#menu{left:6px;bottom:6px;min-width:0;padding:8px 10px;font-size:11px}#menu b{font-size:12px;min-width:12ch}}#hudNext{left:50%;top:44px;transform:translateX(-50%);text-align:center;font-size:14px;line-height:1.2;padding:4px 12px}#hudNext:empty{display:none}#hudNext .arrow{font-size:20px;font-weight:bold;color:var(--accent)}#hudPed{right:10px;bottom:22px;text-align:right}
 #cue{position:absolute;left:50%;top:10px;transform:translateX(-50%);color:var(--red);font-weight:bold;background:#0b1011e0;padding:3px 9px;pointer-events:none;white-space:pre}
 #cue:empty{display:none}
 #progress{position:absolute;bottom:0;left:0;right:0;display:none;color:var(--accent);font-size:10px;line-height:1;white-space:pre;overflow:hidden;background:#0b1011c0}
@@ -98,6 +98,11 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 <div class="stagebar"><span>NORDSCHLEIFE / LIVE / 3D ASCII</span><span id="perf">Loading</span></div>
 <div id="stage" tabindex="-1"><canvas aria-label="3D ASCII racing game" height="576" id="view" tabindex="0" width="1024"></canvas>
 <pre class="hud" id="hudMain"></pre><pre class="hud" id="map" aria-label="Live ASCII sector map"></pre><pre class="hud" id="hudCar"></pre><pre class="hud" id="hudPed"></pre>
+<div class="lobbyonly" id="menu"><div class="mtitle">GARAGE</div>
+<div class="mrow"><span class="mlab">CAR</span><button class="arrow" id="mCarPrev" aria-label="Previous car">&lt;</button><b id="mCar">KESTREL RS</b><button class="arrow" id="mCarNext" aria-label="Next car">&gt;</button></div>
+<div class="mrow"><span class="mlab">PAINT</span><button class="arrow" id="mPaintPrev" aria-label="Previous paint">&lt;</button><b id="mPaint">WHITE</b><button class="arrow" id="mPaintNext" aria-label="Next paint">&gt;</button></div>
+<div class="mnote" id="mNote"></div>
+<div class="mbtns"><button id="mPractice">Practice sector</button><button id="mLap">Full lap</button><button class="primary" id="mStart">Start daily run</button></div></div>
 <span id="cue"></span><pre class="hud" id="hudNext" aria-label="Next corner"></pre><div id="progress"></div><pre hidden id="raceCountdown"></pre></div>
 <div class="box lobbyonly" data-title="RACE CONTROL" id="overlayBox"><div id="overlay"><div class="dialog"><div class="eyebrow" id="overlayTag"></div><h2 id="overlayTitle">Today’s race</h2><p id="overlayDesc">One ranked attempt. Fastest time wins.</p><pre id="resultCard"></pre></div><input hidden id="name"/>
 <div class="buttons"><button disabled id="practice">Practice sector</button><button disabled id="lap">Practice full lap</button><button class="primary" disabled id="start">Start daily run</button></div></div>
