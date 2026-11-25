@@ -256,21 +256,22 @@ function circuit(raw){
 }
 
 // ---- Challenges. Sector boundaries sit between named corners (corner ranges are approximate). ----
+// Sector starts sit on the gentlest stretch near each boundary, so a rolling start never begins mid-bend.
 const sectors=[
- {start:260,length:2440,rolling:30,name:'Hatzenbach – Flugplatz'},
- {start:2700,length:2750,rolling:44,name:'Kottenborn – Adenauer Forst'},
- {start:5450,length:2200,rolling:36,name:'Metzgesfeld – Wehrseifen'},
- {start:7650,length:2750,rolling:24,name:'Breidscheid – Kesselchen'},
- {start:10400,length:2750,rolling:46,name:'Mutkurve – Karussell – Hohe Acht'},
- {start:13150,length:2650,rolling:30,name:'Wippermann – Pflanzgarten'},
- {start:15800,length:3100,rolling:42,name:'Bellof-S – Döttinger Höhe'}];
-const VERSION='nord-v6';
+ {start:540,length:2160,rolling:30,name:'Hatzenbach – Flugplatz'},
+ {start:3040,length:2410,rolling:30,name:'Kottenborn – Adenauer Forst'},
+ {start:5580,length:2070,rolling:30,name:'Metzgesfeld – Wehrseifen'},
+ {start:7540,length:2860,rolling:30,name:'Breidscheid – Kesselchen'},
+ {start:10030,length:3120,rolling:30,name:'Mutkurve – Karussell – Hohe Acht'},
+ {start:13120,length:2680,rolling:30,name:'Wippermann – Pflanzgarten'},
+ {start:15500,length:3400,rolling:30,name:'Bellof-S – Döttinger Höhe'}];
+const VERSION='nord-v7';
 function maxTicksFor(length){return Math.round(HZ*Math.max(180,length/10));}
 const MAX_TICKS=maxTicksFor(3200);
 // The daily ranked run always uses the main car, so every driver races identical machinery.
 function challenge(date){const day=typeof date==='string'?date:new Date().toISOString().slice(0,10),i=wrap(Math.floor(Date.parse(day+'T00:00:00Z')/86400000),sectors.length);
  return withCar({day,id:VERSION+'-'+day,number:i+1,...sectors[i],surface:'Dry',maxTicks:maxTicksFor(sectors[i].length)},MAIN_CAR);}
-function fullLap(car=MAIN_CAR){return withCar({day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',surface:'Dry',maxTicks:maxTicksFor(L),practiceOnly:true},car);}
+function fullLap(car=MAIN_CAR){return withCar({day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:30,name:'Full lap · 20.8 km',surface:'Dry',maxTicks:maxTicksFor(L),practiceOnly:true},car);}
 // Same challenge with another car (practice). The id carries the car so ghosts and bests stay separate.
 // Assists: abs, tc, stab (stability control), counter (countersteer aid), steer (keyboard steering aid), auto (gearbox).
 const ASSIST_KEYS=['abs','tc','stab','counter','steer','auto'],ASSIST_NAMES={abs:'ABS',tc:'TC',stab:'STAB',counter:'CS',steer:'STEER',auto:'AUTO'};

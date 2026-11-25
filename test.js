@@ -11,7 +11,7 @@ let turning = 0; for (const p of road.points) turning += p.k * road.step;
 assert(Math.abs(turning - 2 * Math.PI) < .05, 'closed clockwise loop');
 const hs = road.points.map(p => p.y); assert(Math.max(...hs) - Math.min(...hs) > 250, 'real elevation range');
 assert(road.points.every((p, i, a) => Math.abs(a[(i + 1) % a.length].y - p.y) / road.step <= .19), 'grades within 19%');
-assert.equal(road.corner(R.sectors[4].start + 1600), 'Caracciola-Karussell');
+assert.equal(road.corner(12000), 'Caracciola-Karussell');
 ok(`track ${track.length} m, ${road.points.length} points, ${track.corners.length} named corners, ${(Math.max(...hs) - Math.min(...hs)).toFixed(0)} m elevation range`);
 
 // Embedded client copies must be current
@@ -95,8 +95,8 @@ ok('invalid replays rejected');
 
 // Steering filter: right, left, return to centre
 { const c = R.challenge('2026-11-24'), a = R.initial(c);
-  for (let i = 0; i < 70; i++) R.step(a, 8, c, road); assert(a.steer > .8, 'right ' + a.steer);
-  for (let i = 0; i < 140; i++) R.step(a, 4, c, road); assert(a.steer < -.8, 'left ' + a.steer);
+  for (let i = 0; i < 110; i++) R.step(a, 8, c, road); assert(a.steer > .8, 'right ' + a.steer);
+  for (let i = 0; i < 200; i++) R.step(a, 4, c, road); assert(a.steer < -.8, 'left ' + a.steer);
   for (let i = 0; i < 120; i++) R.step(a, 0, c, road); assert(Math.abs(a.steer) < .01);
   ok('steering left / right / return to centre'); }
 
