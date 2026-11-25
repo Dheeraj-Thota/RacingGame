@@ -75,7 +75,7 @@ const FORMULA={
  overhangF:.95, overhangR:.62, halfWidth:1.05,
  turboLag:.40, boostShare:.55, launchRpm:6500, revStart:10500, shiftUp:11700, shiftDownBrake:11000, shiftDown:8500, shiftDownLow:6500,
  reverseRatio:3.0, engineDrag:[30,.004], lsd:[60,.25], padCold:380, padColdMu:.55, padFade:1100,
- assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, defaults:{abs:true,tc:true,stab:false,counter:true,steer:true,auto:true}
+ assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, defaults:{abs:true,tc:true,stab:true,counter:true,steer:true,auto:true}
 };
 const CARS={f1:FORMULA,kestrel:KESTREL},MAIN_CAR='f1';
 // The active car. Every simulation entry point selects it from the challenge, so one module serves any car.

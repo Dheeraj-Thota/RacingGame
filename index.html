@@ -219,7 +219,7 @@ const FORMULA={
  overhangF:.95, overhangR:.62, halfWidth:1.05,
  turboLag:.40, boostShare:.55, launchRpm:6500, revStart:10500, shiftUp:11700, shiftDownBrake:11000, shiftDown:8500, shiftDownLow:6500,
  reverseRatio:3.0, engineDrag:[30,.004], lsd:[60,.25], padCold:380, padColdMu:.55, padFade:1100,
- assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, defaults:{abs:true,tc:true,stab:false,counter:true,steer:true,auto:true}
+ assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, defaults:{abs:true,tc:true,stab:true,counter:true,steer:true,auto:true}
 };
 const CARS={f1:FORMULA,kestrel:KESTREL},MAIN_CAR='f1';
 // The active car. Every simulation entry point selects it from the challenge, so one module serves any car.
@@ -634,11 +634,11 @@ function buildFar(){const save=verts,S=Math.ceil(N/FAR_STEP);verts=[];farSeg=[];
 // Driving line (Gran Turismo style): apex-biased line coloured by what the car should be doing there:
 // teal = accelerate, amber = hold/lift near the corner speed, red = brake. Built once from a grip/power profile.
 let lineOn=true;const lineOff=new Float32Array(N);const bodyNowPhys=()=>active?raceConfig.car:carBody;
-function buildLine(K){const lineCol=new Uint8Array(N),m=K.mass,kz=K.downforce,mu=K.mu*.92,vmax=new Float64Array(N),pw=Math.max(...K.torque.map(([r,t])=>t*r*TAU/60))*K.driveEfficiency;
+function buildLine(K){const lineCol=new Uint8Array(N),m=K.mass,kz=K.downforce,mu=K.mu*.80,vmax=new Float64Array(N),pw=Math.max(...K.torque.map(([r,t])=>t*r*TAU/60))*K.driveEfficiency;
  for(let i=0;i<N;i++){let k=0,kk=0;for(let j=-3;j<=3;j++){const q=track[(i+j+N)%N].k;k=Math.max(k,Math.abs(q));}for(let j=-7;j<=7;j++)kk+=track[(i+j+N)%N].k*(1-Math.abs(j)/8);
   lineOff[i]=clamp(kk*24,-2.6,2.6);const den=k-mu*kz/m;vmax[i]=den>1e-5?Math.min(90,Math.sqrt(mu*9.81/den)):90;}
  const back=Float64Array.from(vmax),fwd=Float64Array.from(vmax);
- for(let pass=0;pass<2;pass++)for(let i=2*N-1;i>=0;i--){const a=i%N,b=(i+1)%N,dec=7.2*K.mu+mu*kz*back[b]*back[b]/m;back[a]=Math.min(back[a],Math.sqrt(back[b]*back[b]+2*dec*step));}
+ for(let pass=0;pass<2;pass++)for(let i=2*N-1;i>=0;i--){const a=i%N,b=(i+1)%N,dec=6.0*K.mu+mu*kz*back[b]*back[b]/m;back[a]=Math.min(back[a],Math.sqrt(back[b]*back[b]+2*dec*step));}
  for(let pass=0;pass<2;pass++)for(let i=1;i<2*N;i++){const a=i%N,b=(i-1+N)%N,u=Math.max(fwd[b],5),acc=Math.max(.5,Math.min(K.mu*5,pw/(m*u))-.5*1.225*K.dragArea*u*u/m);fwd[a]=Math.min(vmax[a],Math.sqrt(u*u+2*acc*step));}
  for(let i=0;i<N;i++){const v=Math.min(back[i],fwd[i]);lineCol[i]=back[i]<fwd[i]-.4?2:v>vmax[i]-1.2?1:0;}return lineCol;}
 const LINE_COL={};const curLineCol=()=>LINE_COL[bodyNowPhys()]||(LINE_COL[bodyNowPhys()]=buildLine(Race.spec(bodyNowPhys())));
@@ -752,7 +752,7 @@ function tyreCell(i){const slip=carState.slip?carState.slip[i]:0,load=carState.l
 function gMeter(){const cols=11,rows=5,ax=(carState.ax||0)/9.81,ay=(carState.ay||0)/9.81,x=clamp(Math.round(5+ay*2.5),0,cols-1),y=clamp(Math.round(2-ax*1.6),0,rows-1);const lines=[];
  for(let r=0;r<rows;r++){let line='';for(let c=0;c<cols;c++){line+=c===x&&r===y?span('acc','o'):span('muted',c===5&&r===2?'+':c===5?':':r===2?'-':' ');}lines.push(line);}return lines;}
 function hud(){const AFh=raceConfig.assists||{},kmh=Math.round(v*3.6),gear=carState.reverse?'R':(AFh.auto===false?'M':'')+carState.gear,target=carState.cornerSpeed,dist=clamp(s-raceConfig.start,0,raceConfig.length),corner=road.corner(s);
- $('hudNext').innerHTML=active&&!paused&&performance.now()>goAt?nextCorner():'';$('cue').textContent=active&&!paused&&v>target*.9+1.5&&performance.now()>goAt?'BRAKE > '+Math.round(target*.88*3.6):'';
+ $('hudNext').innerHTML=active&&!paused&&performance.now()>goAt?nextCorner():'';$('cue').textContent=active&&!paused&&v>target*.80+1.5&&performance.now()>goAt?'BRAKE > '+Math.round(target*.78*3.6):''; // cautious: following it keeps the car on the road
  const pen=carState.penalty>0?span('red','  +'+carState.penalty.toFixed(1)+'s'):'';
  const status=paused?span('amb','PAUSED'):active&&performance.now()<goAt?'ROLLING START':carState.invalid?span('red','INVALID · '+carState.reason):carState.contact?span('red','BARRIER CONTACT'):carState.airborne?span('amb','LIGHT · CREST'):carState.surface&&carState.surface.filter(x=>x===2).length>=2?span('amb','GRASS'):(ranked?'RANKED':'PRACTICE');
  $('hudMain').innerHTML=`<span class="big">${padS(kmh,3)}</span> km/h  ${span('acc',(String(gear)[0]==='M'?'':'G')+gear)}\n${rpmBar(carState.rpm||0)} ${padS(Math.round(carState.rpm||0),4)}\n${span('acc',time(elapsed))}${pen}${(()=>{const dl=liveDelta();return dl==null?'':'  '+span(dl<=0?'acc':'red',(dl<=0?'-':'+')+Math.abs(dl).toFixed(3));})()}\n${padS(Math.floor(dist),5)} / ${raceConfig.length.toFixed(0)} m  ${esc(corner.toUpperCase())}\n${status}`;

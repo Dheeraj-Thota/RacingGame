@@ -130,6 +130,8 @@ Use durable database storage and HTTPS for a hosted instance. Do not expose this
 - **Formula '86** (main car): a generic mid-1980s turbo single-seater. Estimated period-typical figures: 650 kg with driver, ~877 PS turbo V6 with turbo lag, 12,000 rpm, 6 speeds, slicks, high downforce (~900 kg at 250 km/h), carbon brakes that need heat. Light ABS and traction control are game concessions for keyboard and pad. Simulated 0-100 km/h 2.7 s, 0-200 km/h 4.7 s, 324 km/h, 200-0 km/h in 65 m.
 - **Kestrel RS** (practice): published 992 GT3 RS figures, below.
 
+Default assists: both cars start with ABS, traction control, stability control, countersteer and steering aids on (all switchable). The HUD brake cue and the driving line's braking zones are deliberately cautious: a simple keyboard driver following the cue completes every sector with at most one spin.
+
 Traction control is a slip-target controller that allows more slide in slow corners than at speed (corner-exit slides of about 9 degrees at the limit in both cars).
 
 Published 992 GT3 RS figures used: 1450 kg DIN (+75 kg driver), 2457 mm wheelbase, 1630/1582 mm tracks, 275/35 R20 and 335/30 R21 tyres, 386 kW at 8500 rpm, 465 Nm at 6300 rpm, 9000 rpm, PDK ratios 3.75/2.38/1.72/1.34/1.11/0.96/0.84 with 4.27 final drive, 409 kg downforce at 200 km/h and 860 kg at 285 km/h. Weight distribution, CG height, inertias, roll stiffness split, intermediate torque-curve points, brake torque and tyre coefficients are estimates and are marked as such in the code.
