@@ -175,3 +175,7 @@ Ghosts: after using today's ranked attempt, a player can race the validated repl
 ## Usage statistics
 
 The server records first-party events (visits, practice/ranked runs, results views, shares, challenge opens, ghost choices, sign-ins) in the `events` table with hashed visitor/account IDs, device class and referrer; no IP addresses; Do Not Track / Global Privacy Control visits are counted without an ID; rows older than 13 months are purged. Report: `sudo -u hyzoom node /opt/hyzoom/tools/stats.js` (`--csv` for daily numbers, `--days N` for a longer table). The privacy page describes this; keep them in step.
+
+## Replays
+
+After any run, `WATCH REPLAY` re-runs the recorded inputs through the normal race loop (physics, HUD, sound and comparison ghost included), so the replay is exact. After the ranked run, `WATCH P1` loads the leader's validated replay from the server (same rule as ghosts). Snapshots every 60 ticks make scrubbing instant. Cameras: chase, TV (trackside every 140 m) and overhead. Keys: Space/P play-pause, arrows seek 5 s, C camera, R restart, Esc exit.

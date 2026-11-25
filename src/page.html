@@ -100,7 +100,9 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 .res .rbtn.on{color:var(--accent)}.res .rbtn:hover,.res .rbtn:focus-visible{color:var(--ink);outline:none;text-decoration:underline}
 .res .note{color:var(--muted);font-size:12px;margin-top:10px;min-height:1em;white-space:pre-wrap}
 .challenge-banner{color:var(--amber)}
-</style></head><body><main>
+#replayBar{position:absolute;left:12px;right:12px;bottom:12px;z-index:6;background:rgba(13,18,19,.86);padding:8px 12px;font-size:12px;line-height:1.6;font-family:var(--mono)}
+#replayBar[hidden]{display:none}body.replaying #hudCar,body.replaying #hudPed{display:none}#rpTrack{color:var(--accent);cursor:pointer;white-space:pre;user-select:none;letter-spacing:0}#rpBtns .tog{font-size:12px;margin-right:10px}#rpBtns .tog.on{color:var(--accent)}.rpKeys{font-size:11px}
+#menu[hidden]{display:none}</style></head><body><main>
 <header><pre class="logo" aria-label="Hyzoom">#    # #   # #####  ####   ####  #     #
 #    #  # #     #  #    # #    # ##   ##
 ######   #     #   #    # #    # # # # #
@@ -114,6 +116,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 
 <div id="stage" tabindex="-1"><canvas aria-label="3D ASCII racing game" height="576" id="view" tabindex="0" width="1024"></canvas>
 <pre class="hud" id="hudMain"></pre><pre class="hud" id="map" aria-label="Live ASCII sector map"></pre><pre class="hud" id="hudCar"></pre><pre class="hud" id="hudPed"></pre>
+<div id="replayBar" hidden><div id="rpInfo"></div><div id="rpTrack" title="Click to jump"></div><div id="rpBtns"></div><div class="muted rpKeys">[Space] play/pause · [&lt;][&gt;] 5 s · [C] camera · [R] restart · [Esc] exit</div></div>
 <div class="lobbyonly" id="menu"><div class="mtitle">GARAGE</div>
 <div class="mrow"><span class="mlab">NAME</span><input id="mName" maxlength="24" autocomplete="nickname" spellcheck="false" placeholder="your name"/></div><div class="mrow" id="mAuthRow" hidden><span class="mlab">RANKED</span><span id="mAuth"></span></div>
 <div class="mrow"><span class="mlab">CAR</span><button class="arrow" id="mCarPrev" aria-label="Previous car">&lt;</button><b id="mCar">FORMULA '86</b><button class="arrow" id="mCarNext" aria-label="Next car">&gt;</button></div>
