@@ -19,6 +19,8 @@ const db = new DatabaseSync(process.env.DB_PATH || path.join(__dirname, 'redline
 db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000; CREATE TABLE IF NOT EXISTS attempts (day TEXT NOT NULL, player TEXT NOT NULL, token TEXT UNIQUE NOT NULL, started INTEGER NOT NULL, status TEXT NOT NULL, name TEXT NOT NULL, time REAL, reason TEXT, assists TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(day,player));");
 try { db.exec('ALTER TABLE attempts ADD COLUMN splits TEXT'); } catch {} // split times at each tenth of the sector, from the server's own re-simulation
 try { db.exec('ALTER TABLE attempts ADD COLUMN inputs TEXT'); } catch {} // the validated replay, so others can race it as a ghost
+try { db.exec('ALTER TABLE attempts ADD COLUMN share TEXT'); } catch {} // public id for share and challenge links
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS attempts_share ON attempts(share)');
 db.exec('CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, sub TEXT NOT NULL, created INTEGER NOT NULL)');
 db.prepare('DELETE FROM sessions WHERE created < ?').run(Date.now() - 90 * 864e5);
 
@@ -134,7 +136,7 @@ function sameOrigin(req) {
 }
 
 // ---------- leaderboard ----------
-function current(player, c) { return db.prepare('SELECT status,time,reason FROM attempts WHERE day=? AND player=?').get(c.day, player) || null; }
+function current(player, c) { return db.prepare('SELECT status,time,reason,share FROM attempts WHERE day=? AND player=?').get(c.day, player) || null; }
 const SPLITS = 10;
 // Times at each tenth of the sector, taken from the server's re-simulation (never from the browser).
 function splitRecorder(config) { const out = []; let next = 1; return { out, tick: a => { while (next < SPLITS && a.s - config.start >= config.length * next / SPLITS) { out.push(Math.round((a.ticks / Race.HZ + a.penalty) * 1000) / 1000); next++; } } }; }
@@ -144,7 +146,7 @@ const parse = s => { try { return JSON.parse(s || 'null'); } catch { return null
 const cache = { day: null, at: 0, list: null };
 function finishedList(day) {
   if (cache.day === day && Date.now() - cache.at < 2000) return cache.list;
-  const list = db.prepare("SELECT name,time,player,assists,splits FROM attempts WHERE day=? AND status='finished' ORDER BY time,started,player").all(day);
+  const list = db.prepare("SELECT name,time,player,assists,splits,share FROM attempts WHERE day=? AND status='finished' ORDER BY time,started,player").all(day);
   for (const x of list) { x.splits = parse(x.splits); x.assistText = Race.assistText(Race.assistsFor(Race.MAIN_CAR, parse(x.assists) || {})); }
   const times = list.map(x => x.time), lo = times[0], hi = times.at(-1), bins = 12, w = Math.max((hi - lo) / bins, .001), hist = Array(bins).fill(0);
   for (const t of times) hist[Math.min(bins - 1, Math.floor((t - lo) / w))]++;
@@ -158,6 +160,7 @@ function board(player, c) {
   return {
     total: list.length,
     rows: list.slice(0, 10).map((x, k) => ({ rank: k + 1, name: x.name, time: x.time, assists: x.assistText, you: x.player === player })),
+    near: i < 10 ? [] : list.slice(Math.max(10, i - 2), i + 3).map((x, k) => ({ rank: Math.max(10, i - 2) + k + 1, name: x.name, time: x.time, you: x.player === player })),
     you: i < 0 ? null : { rank: i + 1, time: list[i].time, percentile: list.length === 1 ? null : 100 * list.filter(x => x.time > list[i].time).length / (list.length - 1), delta: list[i].time - list[0].time },
     field: list.summary && { ...list.summary, you: i < 0 ? null : list[i].splits },
   };
@@ -226,6 +229,16 @@ async function handle(req, res) {
     if (t) db.prepare('DELETE FROM sessions WHERE token=?').run(t);
     return json(res, { signedIn: false }, 200, { 'Set-Cookie': 'hz_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (SECURE ? '; Secure' : '') });
   }
+  // A shared result (challenge link): public leaderboard facts only, never the replay.
+  if (p === '/api/result' && req.method === 'GET') {
+    if ((wait = limited('ghost', ip))) return tooMany(res, wait);
+    const id = String(url.searchParams.get('id') || '');
+    if (!/^[A-Za-z0-9_-]{8}$/.test(id)) return json(res, { error: 'Unknown challenge' }, 404);
+    const row = db.prepare("SELECT day,name,time,splits,player FROM attempts WHERE share=? AND status='finished'").get(id);
+    if (!row) return json(res, { error: 'Unknown challenge' }, 404);
+    const list = finishedList(row.day), rank = list.findIndex(x => x.player === row.player) + 1, ch = Race.challenge(row.day);
+    return json(res, { id, day: row.day, name: row.name, time: row.time, splits: parse(row.splits), rank, total: list.length, sector: ch.number, sectorName: ch.name, today: row.day === c.day });
+  }
   // Another driver's validated replay, to race as a ghost. Only after you have used today's ranked attempt,
   // so nobody can copy the leader's line before their own ranked run.
   if (p === '/api/ghost' && req.method === 'GET') {
@@ -269,7 +282,7 @@ async function handle(req, res) {
       return json(res, { error: 'Replay rejected' }, 400);
     }
     const valid = result.done && !result.invalid && !b.abandon && result.time !== null;
-    db.prepare("UPDATE attempts SET status=?,time=?,reason=?,splits=?,inputs=? WHERE token=? AND status='running'").run(valid ? 'finished' : 'dnf', valid ? result.time : null, valid ? '' : result.reason || 'Abandoned', valid ? JSON.stringify(rec.out) : null, valid ? JSON.stringify(b.inputs) : null, a.token);
+    db.prepare("UPDATE attempts SET status=?,time=?,reason=?,splits=?,inputs=?,share=? WHERE token=? AND status='running'").run(valid ? 'finished' : 'dnf', valid ? result.time : null, valid ? '' : result.reason || 'Abandoned', valid ? JSON.stringify(rec.out) : null, valid ? JSON.stringify(b.inputs) : null, valid ? crypto.randomBytes(6).toString('base64url') : null, a.token);
     if (valid) broadcast(a.day);
     return json(res, { attempt: current(who, config), leaderboard: board(who, config) });
   }

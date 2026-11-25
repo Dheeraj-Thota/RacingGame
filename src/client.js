@@ -415,11 +415,58 @@ function drawGhostPick(){const cur=ghostOn?ghostPick:'off';$('ghostPick').innerH
 function pickGhost(k){if(k==='off'){ghostOn=false;}else{ghostOn=true;ghostPick=k;storage.set('redline-ghost-pick',k);}storage.set('redline-ghost',ghostOn);$('ghostSel').value=ghostOn?'1':'0';$('ghostBtn').querySelector('b').textContent=ghostOn?'ON':'OFF';remoteGhost=null;$('ghostNote').textContent='';if(ghostOn&&k!=='best')loadRemoteGhost();drawGhostPick();}
 async function loadRemoteGhost(){const k=ghostPick;if(!online){$('ghostNote').textContent='Other drivers\' ghosts need the online leaderboard.';return drawGhostPick();}
  $('ghostNote').textContent='Loading ghost...';try{const g=await api('ghost?which='+k);if(ghostPick!==k)return;remoteGhost={inputs:g.inputs,assists:g.assists,time:g.time,label:`P${g.rank} ${g.name}`};}catch(e){remoteGhost=null;$('ghostNote').textContent=e.message;}drawGhostPick();}
+// ---------- Full-screen results, sharing and friend challenges ----------
+// A challenge link (?vs=<id>) shows the friend's time to beat, then a head-to-head after your ranked run.
+const vsId=(()=>{try{const v=new URLSearchParams(location.search).get('vs');return v&&/^[A-Za-z0-9_-]{8}$/.test(v)?v:null;}catch{return null;}})();
+let challengeRes=null;
+async function loadChallenge(){if(!vsId||!online)return;try{challengeRes=await api('result?id='+vsId);}catch{challengeRes=null;}showChallengeBanner();}
+function showChallengeBanner(){if(!challengeRes)return;const c=challengeRes;$('mNote').innerHTML=c.today?`<span class="challenge-banner">${esc(c.name)} challenged you: ${time(c.time)} on today's sector (P${c.rank} of ${c.total}). Beat it.</span>`:`<span class="challenge-banner">${esc(c.name)}'s challenge was for an earlier sector. Today's is new: set a time and send one back.</span>`;}
+const SITE=()=>/^https:/.test(location.protocol)?location.origin:'https://hyzoom.io';
+// Ten squares, one per tenth of the sector, against a reference (the median driver or a friend).
+function squares(mine,minesTotal,ref,refTotal){if(!Array.isArray(mine)||!Array.isArray(ref)||mine.length!==9||ref.length!==9)return '';const a=[...mine,minesTotal],b=[...ref,refTotal];let out='';
+ for(let k=0;k<10;k++){const sa=a[k]-(k?a[k-1]:0),sb=b[k]-(k?b[k-1]:0),d=sa-sb;out+=d<-.05?'🟩':d>.05?'🟥':'🟨';}return out;}
+function shareText(){const lb=leaderboard,you=lb?.you,F=lb?.field,t=attempt?.time;if(t==null)return '';
+ const top=you&&you.percentile!=null?Math.max(1,Math.ceil(100-you.percentile)):null,sq=F&&F.you&&F.medianSplits?squares(F.you,t,F.medianSplits,F.median):'';
+ const link=attempt?.share?`${SITE()}/?vs=${attempt.share}`:SITE();
+ return [`HYZOOM ${challenge.day} · S${challenge.number} ${challenge.name}`,`${you?`P${you.rank}/${lb.total} · `:''}${time(t)}${top?` · top ${top}%`:you&&lb.total===1?' · first finisher':''}`,...(sq?[sq]:[]),`Beat me: ${link}`].join('\n');}
+async function shareResult(mode){const text=shareText(),note=$('resNote');if(!text)return;
+ const link=attempt?.share?`${SITE()}/?vs=${attempt.share}`:SITE();
+ if(mode==='challenge'){const msg=`I ran ${time(attempt.time)} on today's Hyzoom sector. Beat it: ${link}`;if(navigator.share){try{await navigator.share({title:'Hyzoom challenge',text:msg,url:link});return;}catch(e){if(e&&e.name==='AbortError')return;}}
+  try{await navigator.clipboard.writeText(msg);note.textContent='Challenge link copied. Send it to a friend.';}catch{note.textContent=msg;}return;}
+ if(mode==='share'&&navigator.share){try{await navigator.share({title:'Hyzoom',text});return;}catch(e){if(e&&e.name==='AbortError')return;}}
+ try{await navigator.clipboard.writeText(text);note.textContent='Result copied. Paste it anywhere.';}catch{note.textContent=text;}}
+function closeResults(){$('results').hidden=true;document.body.style.overflow='';}
+function showResults(isRanked){const R=$('resBody'),st=lastRun?.state,c=lastRun?.config||raceConfig,done=latestResult?.status==='finished',o=[];
+ const sector=c.practiceOnly?'Full lap · Nordschleife':`Sector ${String(c.number).padStart(2,'0')} · ${esc(c.name)}`;
+ o.push(`<div class="kicker">${isRanked?'DAILY RANKED · '+esc(challenge.day):c.practiceOnly?'FULL LAP':'PRACTICE'}</div><div class="sector">${sector}</div>`);
+ const lb=leaderboard,you=isRanked&&online?lb?.you:null,F=lb?.field;
+ if(!done){o.push(`<div class="big" style="color:var(--red)">DNF</div><div class="of">${esc(latestResult?.reason||'Run ended')}</div>`);}
+ else if(you){o.push(`<div class="big">P${you.rank}</div><div class="of">of ${lb.total} ${lb.total===1?'driver':'drivers'} today</div><div class="time">${time(latestResult.time)}</div>`);
+  o.push(you.percentile==null?`<div class="stat">First finisher today. Everyone else is chasing <b>you</b>.</div>`:`<div class="stat">Faster than <b>${you.percentile.toFixed(1)}%</b> of the field</div>`);
+  if(lb.total>1)o.push(`<div class="stat">${you.rank===1?'<b>Fastest today</b>':`+${you.delta.toFixed(3)} s to P1`}${F?.median!=null?` · ${latestResult.time<=F.median?'-':'+'}${Math.abs(latestResult.time-F.median).toFixed(3)} s to the median`:''}</div>`);
+  const sq=F&&F.you&&F.medianSplits?squares(F.you,latestResult.time,F.medianSplits,F.median):'';if(sq)o.push(`<div class="squares">${sq}</div><div class="note">each square is a tenth of the sector vs the median driver: 🟩 faster · 🟨 even · 🟥 slower</div>`);
+  // standings around you
+  const p1=lb.rows[0]?.time,line=r=>{const row=`${padS('P'+r.rank,5)}  ${padE(r.name,18)} ${time(r.time)}  ${r.rank===1?'':'+'+(r.time-p1).toFixed(3)}`;return r.you?`<span class="you">${esc(row)}</span>`:esc(row);};
+  const rows=you.rank<=10?lb.rows:[...lb.rows.slice(0,3),null,...(lb.near||[])];o.push('<pre>'+rows.map(r=>r?line(r):'  ···').join('\n')+'</pre>');}
+ else{o.push(`<div class="big" style="font-size:clamp(60px,12vw,120px)">${time(latestResult.time)}</div>`);
+  if(isRanked)o.push(`<div class="stat">${online?'Submitted.':'Saved on this device. Play on hyzoom.io to join the live leaderboard.'}</div>`);
+  if(lastRun?.newBest)o.push(`<div class="stat"><b>New best</b>${lastRun.prevBest?` · ${(st.time-lastRun.prevBest).toFixed(3)} s`:''} · saved as your ghost</div>`);
+  else if(lastRun?.prevBest)o.push(`<div class="stat">Your best: ${time(lastRun.prevBest)} (+${(st.time-lastRun.prevBest).toFixed(3)} s)</div>`);}
+ // head-to-head with the friend who challenged you
+ if(isRanked&&done&&challengeRes&&challengeRes.today){const d=latestResult.time-challengeRes.time,sq=F?.you?squares(F.you,latestResult.time,challengeRes.splits,challengeRes.time):'';
+  o.push(`<div class="vs">VS ${esc(challengeRes.name)}: ${d<0?`<b style="color:var(--accent)">you win by ${(-d).toFixed(3)} s</b>`:d>0?`<span style="color:var(--red)">${esc(challengeRes.name)} wins by ${d.toFixed(3)} s</span>`:'dead heat'}${sq?`<div class="squares">${sq}</div><div class="note">green where you were faster than ${esc(challengeRes.name)}</div>`:''}</div>`);}
+ if(st&&done)o.push(`<div class="note">Top speed ${(st.maxSpeed*3.6).toFixed(0)} km/h · contacts ${st.collisions}${st.penalty?` · penalty +${st.penalty.toFixed(1)} s`:''}${st.driftBest>20?` · best drift ${Math.round(st.driftBest)}`:''}</div>`);
+ const acts=[];if(isRanked&&done){acts.push('<button class="primary" data-a="challenge">CHALLENGE A FRIEND</button>','<button data-a="share">SHARE RESULT</button>');}
+ if(!isRanked)acts.push('<button class="primary" data-a="again">RACE AGAIN</button>');acts.push('<button data-a="close">BACK TO GARAGE</button>');
+ o.push(`<div class="acts">${acts.join('')}</div><div class="note" id="resNote"></div>`);
+ R.innerHTML=o.join('');for(const b of R.querySelectorAll('button'))b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeResults();else if(a==='again'){closeResults();$(c.practiceOnly?'mLap':'mPractice').click();}else shareResult(a);};
+ $('results').hidden=false;document.body.style.overflow='hidden';setTimeout(()=>R.querySelector('button')?.focus(),50);}
+window.addEventListener('keydown',e=>{if(!$('results').hidden&&e.key==='Escape'){e.preventDefault();closeResults();}},true);
 let liveSrc=null;function goLive(){if(!online||liveSrc||typeof EventSource==='undefined')return;liveSrc=new EventSource('/api/live');
  liveSrc.onmessage=async()=>{await new Promise(r=>setTimeout(r,Math.random()*2500));try{const data=await api('daily');if(data.challenge.id!==challenge.id)return;leaderboard=data.leaderboard;attempt=data.attempt||attempt;drawBoard();}catch{}};}
 // Start playable at once in local mode; the leaderboard server, when there is one, is joined in the background.
 async function init(){attempt=storage.get(challenge.id);practiceBest=storage.get('redline-practice-'+Race.VERSION)||{};$('mName').value=storage.get('redline-name')||'';raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;ready=true;frames();specSheet();updateLobby();drawGhostPick();
- if(location.protocol==='file:')return;try{const data=await api('daily');if(active||startPending)return;online=true;const changed=data.challenge.id!==challenge.id;challenge=data.challenge;attempt=data.attempt;leaderboard=data.leaderboard;auth=data.auth||auth;if(changed){raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;}updateLobby();drawAuth();drawGhostPick();if(ghostOn&&ghostPick!=='best')loadRemoteGhost();goLive();}catch{online=false;}}
+ if(location.protocol==='file:')return;try{const data=await api('daily');if(active||startPending)return;online=true;const changed=data.challenge.id!==challenge.id;challenge=data.challenge;attempt=data.attempt;leaderboard=data.leaderboard;auth=data.auth||auth;if(changed){raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;}updateLobby();drawAuth();drawGhostPick();if(ghostOn&&ghostPick!=='best')loadRemoteGhost();loadChallenge();goLive();}catch{online=false;}}
 // Sound: synthesised flat-six (firing frequency = rpm/60 x 3), wind, tyre scrub and kerb rumble.
 // Created on the first click (browsers only allow audio after a gesture). M mutes.
 let audio=null,soundOn=storage.get('redline-sound')!==false;
@@ -470,11 +517,11 @@ async function finish(abandon=false){if(!active||finishBusy)return;active=false;
  let result={status:valid?'finished':'dnf',time:valid?carState.time:null,reason:valid?'':carState.reason||'Abandoned'};const ghostTrace=ghost&&ghost.id===raceConfig.id?ghost.trace:null,prevBest=ghost&&ghost.id===raceConfig.id?ghost.time:null;let newBest=false;if(valid)newBest=saveBest(raceConfig,carState.time,runs.map(x=>[...x]));lastRun={state:{...carState,time:valid?carState.time:null,driftBest:Math.max(carState.driftBest||0,carState.drift||0)},config:raceConfig,trace:runTrace.slice(),ghostTrace,prevBest,newBest};
  if(ranked){if(online){try{let data=await api('finish',{token:runningToken,inputs:runs,abandon});attempt=data.attempt;leaderboard=data.leaderboard;}catch(e){attempt={status:'dnf',reason:'Submission failed: '+e.message};}}else{attempt=result;storage.set(challenge.id,attempt);}latestResult=attempt;}
  else{latestResult=result;const key=raceConfig.practiceOnly?Race.VERSION+'-lap':Race.VERSION+'-'+raceConfig.number;if(valid){practiceBest[key]=Math.min(practiceBest[key]??Infinity,result.time);storage.set('redline-practice-'+Race.VERSION,practiceBest);}}
- finishBusy=false;updateLobby();$('overlayTag').textContent=ranked?'Ranked result':raceConfig.practiceOnly?'Full lap result':'Practice result';$('overlayTitle').textContent=latestResult.status==='finished'?time(latestResult.time):'Run ended';
+ finishBusy=false;updateLobby();{const wasRanked=ranked;setTimeout(()=>showResults(wasRanked),400);}$('overlayTag').textContent=ranked?'Ranked result':raceConfig.practiceOnly?'Full lap result':'Practice result';$('overlayTitle').textContent=latestResult.status==='finished'?time(latestResult.time):'Run ended';
  const pkey=raceConfig.practiceOnly?Race.VERSION+'-lap':Race.VERSION+'-'+raceConfig.number;$('overlayDesc').textContent=latestResult.status==='finished'?(ranked?'Your ranked time is final.':`Practice best: ${time(practiceBest[pkey])}${raceConfig.practiceOnly&&raceConfig.car==='kestrel'?' · real 992 GT3 RS: 6:49.328':''}`):latestResult.reason||'Attempt ended';}
 // Two-click confirm for ending a ranked run (browser confirm() is unavailable in sandboxed frames).
 let resetArmed=0;$('reset').onclick=()=>{if(!active)return;if(!ranked||performance.now()-resetArmed<3000){resetArmed=0;finish(true);return;}resetArmed=performance.now();$('reset').textContent='Click again to end';setTimeout(()=>{if(active&&ranked)$('reset').textContent='End run';},3000);};
-$('share').onclick=async()=>{let you=leaderboard?.you,text=`HYZOOM ${challenge.day}\nNordschleife S${challenge.number} ${challenge.name}\n${time(attempt.time)}${you?` · #${you.rank}/${leaderboard.total}${you.percentile==null?'':` · faster than ${you.percentile.toFixed(1)}%`}`:' · offline run'}`;try{await navigator.clipboard.writeText(text);$('share').textContent='Copied';}catch{$('resultDetail').textContent=text;$('share').textContent='Copy blocked: text shown above';}};
+$('share').onclick=()=>{showResults(true);};const oldShare=async()=>{let you=leaderboard?.you,text=`HYZOOM ${challenge.day}\nNordschleife S${challenge.number} ${challenge.name}\n${time(attempt.time)}${you?` · #${you.rank}/${leaderboard.total}${you.percentile==null?'':` · faster than ${you.percentile.toFixed(1)}%`}`:' · offline run'}`;try{await navigator.clipboard.writeText(text);$('share').textContent='Copied';}catch{$('resultDetail').textContent=text;$('share').textContent='Copy blocked: text shown above';}};
 // ASCII cycle buttons drive the (hidden) selects the renderer reads.
 function cycle(btn,sel){const b=$(btn),el=$(sel),show=()=>b.querySelector('b').textContent=el.options[el.selectedIndex].text.toUpperCase();b.onclick=()=>{el.selectedIndex=(el.selectedIndex+1)%el.options.length;el.dispatchEvent(new Event('change'));show();if(active)$('stage').focus({preventScroll:true});};show();}
 $('soundBtn').onclick=()=>setSound(!soundOn);$('soundBtn').querySelector('b').textContent=soundOn?'ON':'OFF';
