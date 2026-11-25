@@ -22,6 +22,12 @@ try { db.exec('ALTER TABLE attempts ADD COLUMN inputs TEXT'); } catch {} // the 
 try { db.exec('ALTER TABLE attempts ADD COLUMN share TEXT'); } catch {} // public id for share and challenge links
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS attempts_share ON attempts(share)');
 db.exec('CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, sub TEXT NOT NULL, created INTEGER NOT NULL)');
+// First-party product analytics: pseudonymous (hashed visitor/account IDs), no IP addresses, kept 13 months. See src/privacy.html.
+db.exec('CREATE TABLE IF NOT EXISTS events (ts INTEGER NOT NULL, day TEXT NOT NULL, visitor TEXT, account TEXT, type TEXT NOT NULL, props TEXT)');
+db.exec('CREATE INDEX IF NOT EXISTS events_day_type ON events(day, type)');
+db.exec('CREATE INDEX IF NOT EXISTS events_visitor ON events(visitor, day)');
+const purgeEvents = () => db.prepare('DELETE FROM events WHERE ts < ?').run(Date.now() - 396 * 864e5);
+purgeEvents(); setInterval(purgeEvents, 864e5).unref();
 db.prepare('DELETE FROM sessions WHERE created < ?').run(Date.now() - 90 * 864e5);
 
 const token = () => crypto.randomBytes(24).toString('hex');
@@ -65,6 +71,7 @@ const RULES = {
   finish: [12, 10 * 60e3],   // replay submissions (each one is re-simulated)
   live: [20, 60e3],          // live-stream connects
   auth: [10, 10 * 60e3],     // sign-in attempts
+  event: [120, 60e3],        // analytics events from the page
   ghost: [30, 60e3],         // ghost downloads
 };
 const hits = new Map();
@@ -121,6 +128,32 @@ function json(res, data, status = 200, extra = {}) { res.writeHead(status, { 'Co
 const tooMany = (res, wait) => json(res, { error: 'Too many requests. Try again shortly.' }, 429, { 'Retry-After': String(wait) });
 
 class BadRequest extends Error {}
+
+// ---------- analytics ----------
+const anonHash = (kind, id) => id ? crypto.createHash('sha256').update(kind + ':' + id).digest('hex').slice(0, 20) : null;
+const utcDay = () => new Date().toISOString().slice(0, 10);
+const device = req => { const ua = String(req.headers['user-agent'] || ''); return /iPad|Tablet/i.test(ua) ? 'tablet' : /Mobi|Android|iPhone/i.test(ua) ? 'mobile' : 'desktop'; };
+const optedOut = req => req.headers['sec-gpc'] === '1' || req.headers.dnt === '1';
+// Only these events and fields are accepted from the page; values are short strings, numbers or booleans.
+const EVENTS = {
+  visit: ['ref', 'utm', 'vs', 'w', 'returning'],
+  practice_start: ['car', 'mode'],
+  run_end: ['mode', 'car', 'finished', 'time', 'secs'],
+  results_view: ['mode'],
+  share: ['mode', 'native'],
+  ghost_pick: ['which'],
+};
+function cleanProps(type, props) {
+  const out = {}; if (!props || typeof props !== 'object') return out;
+  for (const k of EVENTS[type] || []) { const v = props[k]; if (typeof v === 'boolean') out[k] = v; else if (typeof v === 'number' && Number.isFinite(v)) out[k] = Math.round(v * 1000) / 1000; else if (typeof v === 'string') out[k] = v.replace(/[^\w.:/@+-]/g, '').slice(0, 60); }
+  return out;
+}
+function track(req, res, type, props = {}, who) {
+  try {
+    const out = optedOut(req), visitor = out ? null : anonHash('v', identity(req, res)), account = out ? null : anonHash('a', who === undefined ? (AUTH ? sessionSub(req) : null) : who);
+    db.prepare('INSERT INTO events(ts,day,visitor,account,type,props) VALUES(?,?,?,?,?,?)').run(Date.now(), utcDay(), visitor, account, type, JSON.stringify({ ...props, device: device(req) }));
+  } catch (e) { console.error('analytics:', e && e.message); }
+}
 async function body(req) {
   if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) throw new BadRequest('Expected JSON');
   if (Number(req.headers['content-length'] || 0) > MAX_BODY) throw new BadRequest('Request too large');
@@ -223,6 +256,7 @@ async function handle(req, res) {
     if ((wait = limited('auth', ip))) return tooMany(res, wait);
     const b = await body(req), sub = await verifyGoogle(b.credential), t = token();
     db.prepare('INSERT INTO sessions(token,sub,created) VALUES(?,?,?)').run(t, sub, Date.now());
+    track(req, res, 'sign_in', {}, sub);
     return json(res, { signedIn: true }, 200, { 'Set-Cookie': 'hz_session=' + t + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + 90 * 86400 + (SECURE ? '; Secure' : '') });
   }
   if (p === '/api/auth/logout' && req.method === 'POST') {
@@ -231,6 +265,14 @@ async function handle(req, res) {
     if (t) db.prepare('DELETE FROM sessions WHERE token=?').run(t);
     return json(res, { signedIn: false }, 200, { 'Set-Cookie': 'hz_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (SECURE ? '; Secure' : '') });
   }
+  if (p === '/api/event' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(res, { error: 'Forbidden' }, 403);
+    if ((wait = limited('event', ip))) return tooMany(res, wait);
+    const b = await body(req), type = String(b.type || '');
+    if (!EVENTS[type]) return json(res, { error: 'Unknown event' }, 400);
+    track(req, res, type, cleanProps(type, b.props));
+    return json(res, { ok: true });
+  }
   // A shared result (challenge link): public leaderboard facts only, never the replay.
   if (p === '/api/result' && req.method === 'GET') {
     if ((wait = limited('ghost', ip))) return tooMany(res, wait);
@@ -238,6 +280,7 @@ async function handle(req, res) {
     if (!/^[A-Za-z0-9_-]{8}$/.test(id)) return json(res, { error: 'Unknown challenge' }, 404);
     const row = db.prepare("SELECT day,name,time,splits,player FROM attempts WHERE share=? AND status='finished'").get(id);
     if (!row) return json(res, { error: 'Unknown challenge' }, 404);
+    track(req, res, 'challenge_open', { today: row.day === c.day });
     const list = finishedList(row.day), rank = list.findIndex(x => x.player === row.player) + 1, ch = Race.challenge(row.day);
     return json(res, { id, day: row.day, name: row.name, time: row.time, splits: parse(row.splits), rank, total: list.length, sector: ch.number, sectorName: ch.name, today: row.day === c.day });
   }
@@ -267,6 +310,7 @@ async function handle(req, res) {
       const assists = cleanAssists(b.assists), t = token();
       try { db.prepare("INSERT INTO attempts(day,player,token,started,status,name,assists) VALUES(?,?,?,?,'running',?,?)").run(c.day, who, t, Date.now(), named.name, JSON.stringify(assists)); }
       catch { return json(res, { error: 'Your ranked attempt has already been used.' }, 409); }
+      track(req, res, 'ranked_start', {}, who.replace(/^g:/, ''));
       return json(res, { token: t, challenge: ranked(c.day, assists) });
     }
     if ((wait = limited('finish', ip))) return tooMany(res, wait);
@@ -286,6 +330,7 @@ async function handle(req, res) {
     const valid = result.done && !result.invalid && !b.abandon && result.time !== null;
     db.prepare("UPDATE attempts SET status=?,time=?,reason=?,splits=?,inputs=?,share=? WHERE token=? AND status='running'").run(valid ? 'finished' : 'dnf', valid ? result.time : null, valid ? '' : result.reason || 'Abandoned', valid ? JSON.stringify(rec.out) : null, valid ? JSON.stringify(b.inputs) : null, valid ? crypto.randomBytes(6).toString('base64url') : null, a.token);
     if (valid) broadcast(a.day);
+    { const l = finishedList(a.day), r = l.findIndex(x => x.player === who) + 1; track(req, res, valid ? 'ranked_finish' : 'ranked_dnf', valid ? { time: result.time, rank: r, field: l.length } : {}, who.replace(/^g:/, '')); }
     return json(res, { attempt: current(who, config), leaderboard: board(who, config) });
   }
   return json(res, { error: 'Not found' }, 404);

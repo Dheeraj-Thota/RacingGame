@@ -171,3 +171,7 @@ Ranked identity: with `GOOGLE_CLIENT_ID` set, ranked runs require Google sign-in
 Names are checked by `names.js` (shared by server and page) for slurs and profanity, including spaced-out, repeated-letter and look-alike spellings. No word filter is complete.
 
 Ghosts: after using today's ranked attempt, a player can race the validated replay of P1 or the driver just ahead, re-simulated in the browser.
+
+## Usage statistics
+
+The server records first-party events (visits, practice/ranked runs, results views, shares, challenge opens, ghost choices, sign-ins) in the `events` table with hashed visitor/account IDs, device class and referrer; no IP addresses; Do Not Track / Global Privacy Control visits are counted without an ID; rows older than 13 months are purged. Report: `sudo -u hyzoom node /opt/hyzoom/tools/stats.js` (`--csv` for daily numbers, `--days N` for a longer table). The privacy page describes this; keep them in step.

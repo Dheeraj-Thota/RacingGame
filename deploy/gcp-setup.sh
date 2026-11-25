@@ -134,3 +134,4 @@ systemctl --no-pager --lines=5 status hyzoom || true
 echo
 echo "Done. Open https://$DOMAIN  (first HTTPS certificate can take a minute)."
 echo "Update later with:  sudo bash $APP/deploy/gcp-setup.sh $DOMAIN"
+echo "Usage report:       sudo -u hyzoom node $APP/tools/stats.js"
