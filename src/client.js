@@ -293,7 +293,7 @@ const storage={mem:{},get(k){try{let v=localStorage.getItem(k);return v==null?th
 function guestName(){let n=storage.get('redline-guest');if(!n){n='Driver '+Math.floor(1000+Math.random()*9000);storage.set('redline-guest',n);}return n;}
 let online=false,ranked=false,runningToken=null,attempt=null,leaderboard=null,runs=[],raceConfig=challenge,accumulator=0,finishBusy=false,ready=false,practiceBest={},latestResult=null,lastRun=null,startPending=false,goAt=0;
 function time(t){if(t==null)return '--:--.---';let ms=Math.round(t*1000),m=Math.floor(ms/60000),sec=Math.floor(ms/1000)%60;return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;}
-async function api(path,data){let res=await fetch('/api/'+path,{...(data===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),signal:AbortSignal.timeout(7000)});let b=await res.json();if(!res.ok)throw Error(b.error||'Server unavailable');return b;}
+async function api(path,data){let res=await fetch('/api/'+path,{...(data===undefined?{cache:'no-store'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),signal:AbortSignal.timeout(5000)});let b=await res.json();if(!res.ok)throw Error(b.error||'Server unavailable');return b;}
 // Ghost and best runs. Runs replay exactly from their inputs, so a best run is stored as inputs and
 // re-simulated into a pose track (and a time-at-distance table for the live delta) when a run starts.
 let ghostOn=true,ghost=null,runTrace=[];const TRACE_STEP=10;
@@ -400,8 +400,9 @@ function updateLobby(){routeArt();sectorList();
  $('perf').textContent='Ready · '+(gl?'GPU':'CPU');$('overlayBox').style.display=lastRun||attempt?'':'none';$('reset').disabled=true;$('pause').hidden=true;drawBoard();}
 let liveSrc=null;function goLive(){if(!online||liveSrc||typeof EventSource==='undefined')return;liveSrc=new EventSource('/api/live');
  liveSrc.onmessage=async()=>{try{const data=await api('daily');if(data.challenge.id!==challenge.id)return;leaderboard=data.leaderboard;attempt=data.attempt||attempt;drawBoard();}catch{}};}
-async function init(){if(location.protocol!=='file:'){try{let data=await api('daily');online=true;challenge=data.challenge;attempt=data.attempt;leaderboard=data.leaderboard;}catch{online=false;}}if(!online)attempt=storage.get(challenge.id);
- practiceBest=storage.get('redline-practice-'+Race.VERSION)||{};$('name').value=storage.get('redline-name')||'';raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;ready=true;frames();specSheet();updateLobby();goLive();}
+// Start playable at once in local mode; the leaderboard server, when there is one, is joined in the background.
+async function init(){attempt=storage.get(challenge.id);practiceBest=storage.get('redline-practice-'+Race.VERSION)||{};$('name').value=storage.get('redline-name')||'';raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;ready=true;frames();specSheet();updateLobby();
+ if(location.protocol==='file:')return;try{const data=await api('daily');if(active||startPending)return;online=true;const changed=data.challenge.id!==challenge.id;challenge=data.challenge;attempt=data.attempt;leaderboard=data.leaderboard;if(changed){raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;}updateLobby();goLive();}catch{online=false;}}
 // Sound: synthesised flat-six (firing frequency = rpm/60 x 3), wind, tyre scrub and kerb rumble.
 // Created on the first click (browsers only allow audio after a gesture). M mutes.
 let audio=null,soundOn=storage.get('redline-sound')!==false;
