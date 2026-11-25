@@ -73,8 +73,21 @@ for (let i = 0; i < R.sectors.length; i++) {
 { const c = R.fullLap('kestrel'), { state } = drive(c, road); assert(state.done && !state.invalid);
   ok(`full lap, Kestrel RS, cautious reference driver: ${lap(state.time)} (real 992 GT3 RS 6:49.328)`); }
 
+// Assists off, manual gearbox: deterministic, shifts only on request, server-style config round trip
+{ const base = R.challenge('2026-11-26'), c = R.withCar(base, 'f1', { abs: false, tc: false, stab: false, counter: false, steer: true, auto: false });
+  assert.equal(c.assistText, 'STEER'); const a = R.initial(c), inputs = []; let shifts = 0;
+  for (let i = 0; i < 120 * 6 && !a.done; i++) { const want = a.rpm > 11500 ? 1 : 0, code = R.withShift(1, want); if (want) shifts++; const g0 = a.gear; R.step(a, code, c, road); inputs.push([code, 1]); }
+  assert(a.gear > 2, 'manual upshifts happened ' + a.gear);
+  const b = R.replay(c, road, inputs); assert.equal(b.s, a.s); assert.equal(b.gear, a.gear);
+  const auto = R.initial(R.withCar(base, 'f1')); for (let i = 0; i < 120; i++) R.step(auto, R.withShift(1, -1), R.withCar(base, 'f1'), road); assert(auto.gear >= 2, 'auto gearbox ignores manual requests');
+  assert.throws(() => R.replay({ ...c, assists: { ...c.assists, turbo: true } }, road, []));
+  const off = R.withCar(base, 'f1', { abs: false, tc: false }), on = R.withCar(base, 'f1');
+  const x = R.initial(off), y = R.initial(on); for (let i = 0; i < 240; i++) { R.step(x, 1, off, road); R.step(y, 1, on, road); }
+  assert(Math.max(...x.slip) >= Math.max(...y.slip) - 1e-9, 'TC off allows at least as much slip');
+  ok(`assists off + manual gearbox: replay identical (gear ${a.gear}), auto ignores shift requests, bad assists rejected`); }
+
 // Input validation
-assert.throws(() => R.replay(R.challenge(), road, [[-1, 1]])); assert.throws(() => R.replay(R.challenge(), road, [[16 + 255 * 256, 1]]));
+assert.throws(() => R.replay(R.challenge(), road, [[-1, 1]])); assert.throws(() => R.replay(R.challenge(), road, [[3 * 65536, 1]]));
 assert.throws(() => R.replay(R.challenge(), road, [[1, 0]])); assert.throws(() => R.replay(R.challenge(), road, [[1.5, 3]]));
 assert.throws(() => R.replay(R.challenge(), road, [[1, R.challenge().maxTicks + 1]]));
 ok('invalid replays rejected');

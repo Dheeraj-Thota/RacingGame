@@ -53,12 +53,13 @@ const KESTREL={
  overhangF:1.04, overhangR:1.05, halfWidth:.95,
  turboLag:0, boostShare:0, launchRpm:2600, revStart:7600, shiftUp:8850, shiftDownBrake:8400, shiftDown:6400, shiftDownLow:3800,
  reverseRatio:3.42, engineDrag:[22,.0052], lsd:[140,.35], padCold:120, padColdMu:.80, padFade:720,
- assists:{abs:.95, tc:2.0, psm:true, counter:[.3,.22]}, assistText:'ABS · TC · PSM · steering limiter'
+ assists:{abs:.95, tc:2.0, psm:true, counter:[.3,.22]}, defaults:{abs:true,tc:true,stab:true,counter:true,steer:true,auto:true}
 };
 // ---- Formula '86: generic mid-1980s turbo-era single-seater. All figures are estimates typical of the period,
 // not any specific car: ~540 kg minimum weight + driver + fuel, 1.5 l turbo V6 ~850 PS in race trim,
 // 12,000 rpm, 6 gears, slick tyres, high downforce, carbon brakes. Light ABS and traction control are game
-// concessions for keyboard and pad play; there is no stability control or rear steer. ----
+// concessions for keyboard and pad play (stability control off by default, no rear steer). Every assist can be
+// switched off; the choice is part of the challenge and its replay. ----
 const FORMULA={
  id:'f1',display:"Formula '86",name:"Formula '86",
  mass:650, wheelbase:2.80, trackF:1.80, trackR:1.66, length:4.40, width:2.10, height:1.00,
@@ -74,7 +75,7 @@ const FORMULA={
  overhangF:.95, overhangR:.62, halfWidth:1.05,
  turboLag:.40, boostShare:.55, launchRpm:6500, revStart:10500, shiftUp:11700, shiftDownBrake:11000, shiftDown:8500, shiftDownLow:6500,
  reverseRatio:3.0, engineDrag:[30,.004], lsd:[60,.25], padCold:380, padColdMu:.55, padFade:1100,
- assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, assistText:'light ABS · light TC · steering limiter'
+ assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, defaults:{abs:true,tc:true,stab:false,counter:true,steer:true,auto:true}
 };
 const CARS={f1:FORMULA,kestrel:KESTREL},MAIN_CAR='f1';
 // The active car. Every simulation entry point selects it from the challenge, so one module serves any car.
@@ -127,7 +128,12 @@ function challenge(date){const day=typeof date==='string'?date:new Date().toISOS
  return withCar({day,id:VERSION+'-'+day,number:i+1,...sectors[i],surface:'Dry',maxTicks:maxTicksFor(sectors[i].length)},MAIN_CAR);}
 function fullLap(car=MAIN_CAR){return withCar({day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',surface:'Dry',maxTicks:maxTicksFor(L),practiceOnly:true},car);}
 // Same challenge with another car (practice). The id carries the car so ghosts and bests stay separate.
-function withCar(c,car){const k=CARS[car]||CARS[MAIN_CAR],base=c.id.replace(/~[a-z0-9]+$/,'');return {...c,car:k.id,carName:k.display,assists:k.assistText,id:k.id===MAIN_CAR?base:base+'~'+k.id};}
+// Assists: abs, tc, stab (stability control), counter (countersteer aid), steer (keyboard steering aid), auto (gearbox).
+const ASSIST_KEYS=['abs','tc','stab','counter','steer','auto'],ASSIST_NAMES={abs:'ABS',tc:'TC',stab:'STAB',counter:'CS',steer:'STEER',auto:'AUTO'};
+function assistsFor(car,given){const k=CARS[car]||CARS[MAIN_CAR],out={};for(const key of ASSIST_KEYS){const v=given&&given[key];out[key]=typeof v==='boolean'?v:k.defaults[key];}return out;}
+function assistText(as){const on=ASSIST_KEYS.filter(k=>as[k]).map(k=>ASSIST_NAMES[k]);return on.length?on.join(' · '):'no assists';}
+function withCar(c,car,assists){const k=CARS[car]||CARS[MAIN_CAR],base=c.id.replace(/~[a-z0-9]+$/,''),as=assistsFor(k.id,assists||c.assists);
+ return {...c,car:k.id,carName:k.display,assists:as,assistText:assistText(as),id:k.id===MAIN_CAR?base:base+'~'+k.id};}
 
 // ---- Brakes: pad friction vs disc temperature (cold bite, plateau, fade above ~720 degC) ----
 function padMu(t){if(t<CAR.padCold)return CAR.padColdMu+(1-CAR.padColdMu)*Math.max(0,t)/CAR.padCold;if(t<CAR.padFade)return 1;return Math.max(.55,1-(t-CAR.padFade)/950);}
@@ -150,9 +156,12 @@ function tyre(kappa,tanAlpha,fz,out){
 }
 
 // ---- Inputs: 0..15 keyboard bitmask (1 gas, 2 brake, 4 left, 8 right) or 16+ quantised analogue ----
-const ANALOG=16,MAX_CODE=16+255*256-1;
-function decode(code){if(code<ANALOG)return {analog:false,gas:code&1?1:0,brake:code&2?1:0,steer:(code&8?1:0)-(code&4?1:0)};
- const c=code-ANALOG,st=c%255,pd=Math.floor(c/255);return {analog:true,steer:(st-127)/127,gas:(pd%16)/15,brake:Math.floor(pd/16)/15};}
+// A manual gear change rides on any code: +65536 = shift up, +131072 = shift down (one tick).
+const ANALOG=16,SHIFT=65536,MAX_CODE=3*SHIFT-1;
+function decode(code){const sh=Math.floor(code/SHIFT),b=code-sh*SHIFT,shift=sh===1?1:sh===2?-1:0;
+ if(b<ANALOG)return {analog:false,shift,gas:b&1?1:0,brake:b&2?1:0,steer:(b&8?1:0)-(b&4?1:0)};
+ const c=b-ANALOG,st=c%255,pd=Math.floor(c/255);return {analog:true,shift,steer:(st-127)/127,gas:(pd%16)/15,brake:Math.floor(pd/16)/15};}
+const withShift=(code,dir)=>code+(dir>0?SHIFT:dir<0?2*SHIFT:0);
 function encodeAnalog(steer,gas,brake){return ANALOG+Math.round(clamp(steer,-1,1)*127+127)+255*(Math.round(clamp(gas,0,1)*15)+16*Math.round(clamp(brake,0,1)*15));}
 
 function initial(c){use(c.car);const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<CAR.ratios.length&&rpmFor(wr,gear)>CAR.revStart)gear++;
@@ -167,7 +176,7 @@ function safeSpeed(road,s,margin=1){const mu=CAR.mu*.97*margin,m=CAR.mass,kz=CAR
 const tyreOut={fx:0,fy:0,dfx:0,mu:0,grip:1};
 
 function psmCut(a){return clamp((a.psm||0)*1.4,0,.9);}
-function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code);const AS=CAR.assists;
+function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code);const AS=CAR.assists,AF=c.assists||CAR.defaults;
  // Pedal and steering input filters (keyboard pedals ramp like a quick foot; analogue is passed through).
  if(inp.analog){a.gas=inp.gas;a.brake=inp.brake;a.steer+=(inp.steer-a.steer)*.5;}
  else{a.gas+=(inp.gas-a.gas)*Math.min(1,DT*10);a.brake+=(inp.brake-a.brake)*Math.min(1,DT*14);
@@ -186,8 +195,8 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
   const betaF=atan((v+r*A)/uu),align=clamp(betaF*.7,-lim,lim),mag=Math.abs(a.steer);
   const beta=atan(v/uu),sliding=Math.abs(beta)>.04&&sgn(beta)===-sgn(r)&&u>6;
   // Steering assist (as in arcade-sim racers on keyboard/pad): when the rear steps out, add countersteer.
-  const counter=sliding?clamp(beta*(inp.analog?AS.counter[0]:AS.counter[1]),-.14,.14):0;
-  const delta=(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter;
+  const counter=sliding&&AF.counter?clamp(beta*(inp.analog?AS.counter[0]:AS.counter[1]),-.14,.14):0;
+  const delta=AF.steer?(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter:a.steer*CAR.maxSteer+counter; // steering aid off: raw lock
   a.delta=delta;
   const rs=CAR.rearSteer?clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer):0;
   // Loads: static (with crests/compressions and grade), aero, transfer
@@ -211,7 +220,7 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
   // PSM (stability control): when sideslip and yaw exceed what the steering asks for, cut torque and
   // brake the outer front wheel to create a stabilising yaw moment.
   const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.065&&sgn(beta)===-sgn(r)&&u>8;
-  const psm=over&&AS.psm?clamp((Math.abs(beta)-.065)*7+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
+  const psm=over&&AF.stab?clamp((Math.abs(beta)-.065)*7+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
   const psmWheel=r>0?0:1; // turning right -> outer (left) front
   a.bp+=(pedalBrake-a.bp)*Math.min(1,H/CAR.brakeLag);
   let Fx=0,Fy=0,Mz=0,tcSlip=0,driveSlip=0;
@@ -226,7 +235,7 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
    const fx=tyreOut.fx,fy=tyreOut.fy;const nk=kappa/CAR.peakRatio,na=ta/CAR.peakSlip;a.slip[i]=Math.sqrt(nk*nk+na*na);a.load[i]=fz[i];
    // ABS per wheel, TC on driven wheels
    const target=-CAR.peakRatio*AS.abs*(front?1:.86); // ABS slip target; lower at the rear (EBD) for stability
-   if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
+   if(!AF.abs)a.abs[i]=1;else if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
    else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
    if(!front&&kappa>0)driveSlip=Math.max(driveSlip,a.slip[i]); // combined slip of a driven tyre under power
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
@@ -241,7 +250,7 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
   }
   // Traction control: proportional slip-target controller on the driven wheels (cuts harder the further past target).
   {const tcT=AS.tc-(AS.tc-1.4)*clamp((u-20)/20,0,1),ex=driveSlip-tcT; // looser in slow corners, tighter at speed
-  a.tc=ex>0?Math.max(.05,a.tc-H*(12+90*ex)):Math.min(1,a.tc+H*(ex<-.4?6:2.5));}
+  a.tc=!AF.tc?1:ex>0?Math.max(.05,a.tc-H*(12+90*ex)):Math.min(1,a.tc+H*(ex<-.4?6:2.5));}
   // Aero drag, grade, off-road drag
   const drag=.5*CAR.airDensity*CAR.dragArea*u*Math.abs(u),offDrag=(a.surface[0]===2?1:0)+(a.surface[1]===2?1:0)+(a.surface[2]===2?1:0)+(a.surface[3]===2?1:0);
   Fx-=drag+m*G*p.grade+offDrag*.06*m*G*sgn(u);
@@ -265,7 +274,11 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
  }
  // PDK: shift points near the limiter; aggressive downshifts under braking. 0.18 s between shifts.
  a.shift=Math.max(0,a.shift-DT);const wr2=(a.w[2]+a.w[3])/2,rpmNow=rpmFor(wr2,a.gear);
- if(a.reverse){a.gear=1;}else if(a.shift===0){if(a.gear<CAR.ratios.length&&rpmNow>CAR.shiftUp&&a.gas>.5){a.gear++;a.shift=.18;}
+ if(a.reverse){a.gear=1;}
+ else if(!AF.auto){ // manual gearbox: shift on request; refuse a downshift that would over-rev the engine
+  if(inp.shift>0&&a.gear<CAR.ratios.length&&a.shift===0){a.gear++;a.shift=.08;}
+  else if(inp.shift<0&&a.gear>1&&a.shift===0&&rpmFor(wr2,a.gear-1)<CAR.redline*1.03){a.gear--;a.shift=.08;}}
+ else if(a.shift===0){if(a.gear<CAR.ratios.length&&rpmNow>CAR.shiftUp&&a.gas>.5){a.gear++;a.shift=.18;}
   else if(a.gear>1&&rpmFor(wr2,a.gear-1)<(a.brake>.2?CAR.shiftDownBrake:CAR.shiftDown)&&(a.brake>.2||rpmNow<CAR.shiftDownLow)){a.gear--;a.shift=.18;}}
  a.v=Math.sqrt(a.vx*a.vx+a.vy*a.vy);a.ticks++;a.maxSpeed=Math.max(a.maxSpeed,a.v);a.contact=contactNow;a.impact=impact;
  if(a.ticks%12===1)a.cornerSpeed=safeSpeed(road,a.s);
@@ -277,10 +290,10 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
  return a;
 }
 
-function replay(c,road,runs){if(!CARS[c.car])throw Error('Unknown car');const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
+function replay(c,road,runs){if(!CARS[c.car])throw Error('Unknown car');if(c.assists&&(typeof c.assists!=='object'||Object.keys(c.assists).some(k=>!ASSIST_KEYS.includes(k)||typeof c.assists[k]!=='boolean')))throw Error('Bad assists');const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
  for(let i=0;i<runs.length;i++){const x=runs[i];if(!Array.isArray(x)||x.length!==2||!Number.isInteger(x[0])||x[0]<0||x[0]>MAX_CODE||!Number.isInteger(x[1])||x[1]<1||x[1]>max||a.ticks+x[1]>max)throw Error('Bad input');
   for(let j=0;j<x[1];j++){if(a.done)throw Error('Trailing input');step(a,x[0],c,road);}}return a;}
 
-const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
+const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,assistsFor,assistText,ASSIST_KEYS,ASSIST_NAMES,withShift,SHIFT,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.Race=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

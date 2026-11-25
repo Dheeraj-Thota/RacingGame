@@ -41,6 +41,7 @@ npm test
 | L / LINE | Driving line on/off |
 | G / GHOST | Ghost of your best run on/off |
 | M / SOUND | Sound on/off |
+| E / Q (pad bumpers) | Shift up / down when automatic gears are off |
 | PAINT | Car colour (lobby) |
 | DETAIL | Manual quality or automatic scaling toward 60 FPS |
 
@@ -54,6 +55,7 @@ The current development build leaves practice unlocked for testing.
 - Track-limit and barrier-contact penalties; a finished run is ranked by total elapsed time including penalties.
 - Global position, percentile and time behind the leader when shared rankings are available.
 - Practice and personal improvement without overwriting the official daily result.
+- Assists: ABS, traction control, stability control, countersteer aid, keyboard steering aid and automatic gears can each be switched on or off per car in the garage menu. The choice is part of the run's replay; ranked runs store it and the standings show it.
 - Sense of speed: field of view widens with speed, camera buzz at speed and rumble on kerbs and grass, motion streaks at the screen edges (GPU renderer), and synthesised engine, wind, tyre and kerb sound (M to mute).
 - Gran Turismo-style aids: a driving line coloured for throttle, lift and braking zones; a ghost of your best run (stored as inputs and re-simulated); a live delta to that best; and an ASCII speed trace against it after each run. These are visual only and identical for every driver.
 
