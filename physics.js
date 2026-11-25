@@ -296,9 +296,9 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
  return a;
 }
 
-function replay(c,road,runs){if(!CARS[c.car])throw Error('Unknown car');if(c.assists&&(typeof c.assists!=='object'||Object.keys(c.assists).some(k=>!ASSIST_KEYS.includes(k)||typeof c.assists[k]!=='boolean')))throw Error('Bad assists');const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
+function replay(c,road,runs,onTick){/* onTick (optional) observes the state after each tick and must not modify it */if(!CARS[c.car])throw Error('Unknown car');if(c.assists&&(typeof c.assists!=='object'||Object.keys(c.assists).some(k=>!ASSIST_KEYS.includes(k)||typeof c.assists[k]!=='boolean')))throw Error('Bad assists');const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
  for(let i=0;i<runs.length;i++){const x=runs[i];if(!Array.isArray(x)||x.length!==2||!Number.isInteger(x[0])||x[0]<0||x[0]>MAX_CODE||!Number.isInteger(x[1])||x[1]<1||x[1]>max||a.ticks+x[1]>max)throw Error('Bad input');
-  for(let j=0;j<x[1];j++){if(a.done)throw Error('Trailing input');step(a,x[0],c,road);}}return a;}
+  for(let j=0;j<x[1];j++){if(a.done)throw Error('Trailing input');step(a,x[0],c,road);if(onTick)onTick(a);}}return a;}
 
 const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,assistsFor,assistText,ASSIST_KEYS,ASSIST_NAMES,withShift,withHandbrake,SHIFT,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.Race=api;
