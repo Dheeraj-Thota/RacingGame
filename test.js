@@ -82,8 +82,8 @@ for (let i = 0; i < R.sectors.length; i++) {
   const auto = R.initial(R.withCar(base, 'f1')); for (let i = 0; i < 120; i++) R.step(auto, R.withShift(1, -1), R.withCar(base, 'f1'), road); assert(auto.gear >= 2, 'auto gearbox ignores manual requests');
   assert.throws(() => R.replay({ ...c, assists: { ...c.assists, turbo: true } }, road, []));
   const off = R.withCar(base, 'f1', { abs: false, tc: false }), on = R.withCar(base, 'f1');
-  const x = R.initial(off), y = R.initial(on); for (let i = 0; i < 240; i++) { R.step(x, 1, off, road); R.step(y, 1, on, road); }
-  assert(Math.max(...x.slip) >= Math.max(...y.slip) - 1e-9, 'TC off allows at least as much slip');
+  const x = R.initial(off), y = R.initial(on); let px = 0, py = 0; for (let i = 0; i < 240; i++) { R.step(x, 1, off, road); R.step(y, 1, on, road); px = Math.max(px, x.slip[2], x.slip[3]); py = Math.max(py, y.slip[2], y.slip[3]); }
+  assert(px >= py - 1e-9, 'TC off allows at least as much peak rear slip');
   ok(`assists off + manual gearbox: replay identical (gear ${a.gear}), auto ignores shift requests, bad assists rejected`); }
 
 // Input validation
