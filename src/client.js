@@ -421,23 +421,30 @@ const vsId=(()=>{try{const v=new URLSearchParams(location.search).get('vs');retu
 let challengeRes=null;
 async function loadChallenge(){if(!vsId||!online)return;try{challengeRes=await api('result?id='+vsId);}catch{challengeRes=null;}showChallengeBanner();}
 function showChallengeBanner(){if(!challengeRes)return;const c=challengeRes;$('mNote').innerHTML=c.today?`<span class="challenge-banner">${esc(c.name)} challenged you: ${time(c.time)} on today's sector (P${c.rank} of ${c.total}). Beat it.</span>`:`<span class="challenge-banner">${esc(c.name)}'s challenge was for an earlier sector. Today's is new: set a time and send one back.</span>`;}
-// Distribution of today's times as a smooth bell curve (kernel density). Faster times on the left;
-// the shaded part is everyone you beat. Markers: P1, median, you, and the friend who challenged you.
-function bellCurve(times,mine,friend){if(!Array.isArray(times)||times.length<2)return '';const n=times.length,lo=times[0],hi=times[n-1],mean=times.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(times.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n)||.5;
- const q=f=>times[Math.min(n-1,Math.max(0,Math.round(f*(n-1))))],iqr=q(.75)-q(.25),h=Math.max(.08,.9*Math.min(sd,iqr>0?iqr/1.34:sd)*Math.pow(n,-.2)),a=Math.min(lo,mine??lo,friend??lo)-2.5*h,b=Math.max(hi,mine??hi,friend??hi)+2.5*h;
- const W=720,H=250,top=34,base=204,N=140,xs=[],ys=[];let ymax=0;for(let i=0;i<=N;i++){const x=a+(b-a)*i/N;let y=0;for(const t of times){const z=(x-t)/h;y+=Math.exp(-.5*z*z);}xs.push(x);ys.push(y);ymax=Math.max(ymax,y);}
- const X=t=>((t-a)/(b-a))*W,Y=y=>base-(y/ymax)*(base-top),pts=xs.map((x,i)=>`${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`);
- const curve='M'+pts.join(' L'),area=`M0,${base} L${pts.join(' L')} L${W},${base} Z`,med=q(.5);
- const anchor=t=>X(t)<70?'start':X(t)>W-70?'end':'middle',tx=t=>Math.min(W-2,Math.max(2,X(t)));
- const line=(t,col,wd,dash,y1)=>t==null?'':`<line x1="${X(t)}" x2="${X(t)}" y1="${y1}" y2="${base}" stroke="${col}" stroke-width="${wd}" ${dash?'stroke-dasharray="4 4"':''}/>`;
- const tick=(t,label,col)=>`<text x="${tx(t)}" y="${base+20}" fill="${col}" font-size="12" text-anchor="${anchor(t)}">${esc(label)}</text>`;
- const youLabel=mine==null?'':`<text x="${tx(mine)}" y="${top-8}" fill="var(--accent)" font-size="15" font-weight="700" text-anchor="${anchor(mine)}">YOU ${time(mine).replace(/^00:/,'')}</text>`;
- const friendLabel=friend==null?'':`<text x="${X(friend)+(X(friend)>W-120?-6:6)}" y="${base-8}" fill="var(--amber)" font-size="12" text-anchor="${X(friend)>W-120?'end':'start'}">FRIEND</text>`;
- return `<svg class="bell" viewBox="0 0 ${W} ${H}" role="img" aria-label="Distribution of today's times"><defs><clipPath id="beat"><rect x="${mine==null?W:X(mine)}" y="0" width="${W}" height="${H}"/></clipPath></defs>
- <path d="${area}" fill="var(--line)" opacity=".35"/><path d="${area}" fill="var(--accent)" opacity=".28" clip-path="url(#beat)"/><path d="${curve}" fill="none" stroke="var(--ink)" stroke-width="2"/>
- <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="var(--line)"/>${line(lo,'var(--muted)',1.5,false,top+10)}${line(med,'var(--muted)',1.5,true,top)}${line(friend,'var(--amber)',2,false,top+10)}${line(mine,'var(--accent)',3,false,top-2)}${youLabel}${friendLabel}
- ${tick(lo,'P1 '+time(lo).replace(/^00:/,''),'var(--muted)')}${Math.abs(X(med)-X(lo))>110&&Math.abs(X(hi)-X(med))>90?tick(med,'MEDIAN '+time(med).replace(/^00:/,''),'var(--muted)'):''}${tick(hi,time(hi).replace(/^00:/,''),'var(--muted)')}
- <text x="${W}" y="${H-2}" fill="var(--muted)" font-size="11" text-anchor="end">slower →</text><text x="0" y="${H-2}" fill="var(--muted)" font-size="11">← faster</text></svg>`;}
+// Block-letter glyphs in the style of the logo, for the big place and time on the results screen.
+const RES_FONT={P:['####.','#...#','####.','#....','#....'],D:['####.','#...#','#...#','#...#','####.'],N:['#...#','##..#','#.#.#','#..##','#...#'],F:['#####','#....','####.','#....','#....'],
+ '0':['.###.','#..##','#.#.#','##..#','.###.'],'1':['..#..','.##..','..#..','..#..','.###.'],'2':['.###.','#...#','..##.','.#...','#####'],'3':['####.','....#','.###.','....#','####.'],'4':['#...#','#...#','#####','....#','....#'],
+ '5':['#####','#....','####.','....#','####.'],'6':['.###.','#....','####.','#...#','.###.'],'7':['#####','....#','...#.','..#..','..#..'],'8':['.###.','#...#','.###.','#...#','.###.'],'9':['.###.','#...#','.####','....#','.###.'],
+ ':':['...','.#.','...','.#.','...'],'.':['...','...','...','...','.#.']};
+function resGlyphs(str){const rows=['','','','',''];for(const ch of String(str)){const g=RES_FONT[ch];if(!g)continue;for(let r=0;r<5;r++)rows[r]+=g[r].replace(/\./g,' ')+' ';}return rows.map(r=>r.replace(/\s+$/,'')).join('\n');}
+// Today's field as an ASCII bell curve (kernel density): '#' in accent for everyone you beat, ':' for those ahead of you,
+// '|' markers for you, P1 and the friend who challenged you, a dotted median. Faster on the left.
+function asciiBell(times,mine,friend){if(!Array.isArray(times)||times.length<2)return '';const n=times.length,lo=times[0],hi=times[n-1],mean=times.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(times.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n)||.5;
+ const q=f=>times[Math.min(n-1,Math.max(0,Math.round(f*(n-1))))],iqr=q(.75)-q(.25),h=Math.max(.08,.9*Math.min(sd,iqr>0?iqr/1.34:sd)*Math.pow(n,-.2));
+ const a=Math.min(lo,mine??lo,friend??lo)-2*h,b=Math.max(hi,mine??hi,friend??hi)+2*h,COLS=64,ROWS=9,col=t=>Math.min(COLS-1,Math.max(0,Math.round((t-a)/(b-a)*(COLS-1))));
+ const dens=[];for(let c=0;c<COLS;c++){const x=a+(b-a)*c/(COLS-1);let y=0;for(const t of times){const z=(x-t)/h;y+=Math.exp(-.5*z*z);}dens.push(y);}const top=Math.max(...dens);
+ const med=q(.5),cy=mine==null?-1:col(mine),cp=col(lo),cm=col(med),cf=friend==null?-1:col(friend),grid=[];
+ for(let r=ROWS-1;r>=0;r--){let line='';for(let c=0;c<COLS;c++){const v=dens[c]/top*ROWS,full=v>=r+1,part=!full&&v>r+.3,beat=cy>=0&&c>cy;
+   if(c===cy){line+=span('acc','|');continue;}if(c===cf&&(full||part||r<ROWS-2)){line+=span('amb','|');continue;}if(c===cp&&(full||part||r<ROWS-3)){line+=span('muted','|');continue;}
+   if(full)line+=beat?span('acc','#'):span('muted',':');else if(part)line+=beat?span('acc','.'):span('muted','.');else if(c===cm&&r%2===0)line+=span('muted',':');else line+=' ';}grid.push(line);}
+ // label rows: YOU above, P1 / MEDIAN / slowest below, placed without overlapping
+ const place=items=>{const W=COLS+12,cls=Array(W).fill(null),ch=Array(W).fill(' ');
+  for(const [c,txt,k] of items){let st=c<4?c:Math.max(0,Math.min(W-txt.length,c-Math.floor(txt.length/2)));let free=true;for(let i=Math.max(0,st-1);i<Math.min(W,st+txt.length+1);i++)if(cls[i])free=false;if(!free)continue;for(let i=0;i<txt.length;i++){ch[st+i]=txt[i];cls[st+i]=k;}}
+  let out='',run='',cur=null;const flush=()=>{if(run)out+=cur?span(cur,run):esc(run);run='';};for(let i=0;i<W;i++){if(cls[i]!==cur){flush();cur=cls[i];}run+=ch[i];}flush();return out.replace(/\s+$/,'');};
+ const short=t=>time(t).replace(/^00:/,'');
+ const above=mine==null?'':place([[cy,'YOU '+short(mine),'acc']]),axis=span('muted','+'+'-'.repeat(COLS-2)+'+');
+ const below=place([[cp,'P1 '+short(lo),'muted'],[cm,'MEDIAN '+short(med),'muted'],[COLS-1-Math.floor(short(hi).length/2),short(hi),'muted'],...(cf>=0?[[cf,'FRIEND','amb']]:[])]);
+ return [above,...grid,axis,below,span('muted','<- faster'+' '.repeat(COLS-19)+'slower ->')].join('\n');}
 // The same shape in text, for sharing: block characters per slice of the field, a caret under you.
 function asciiCurve(F,mine){if(!F||!F.hist||F.hist.length<2)return '';const blocks='▁▂▃▄▅▆▇█',mx=Math.max(...F.hist),bar=F.hist.map(c=>c?blocks[Math.min(7,Math.round(c/mx*7))]:' ').join(''),k=Math.min(F.hist.length-1,Math.max(0,Math.floor((mine-F.lo)/F.binWidth)));return bar+'\n'+' '.repeat(k)+'^ me';}
 const SITE=()=>/^https:/.test(location.protocol)?location.origin:'https://hyzoom.io';
@@ -456,29 +463,29 @@ async function shareResult(mode){const text=shareText(),note=$('resNote');if(!te
  try{await navigator.clipboard.writeText(text);note.textContent='Result copied. Paste it anywhere.';}catch{note.textContent=text;}}
 function closeResults(){$('results').hidden=true;document.body.style.overflow='';}
 function showResults(isRanked){const R=$('resBody'),st=lastRun?.state,c=lastRun?.config||raceConfig,done=latestResult?.status==='finished',o=[];
- const sector=c.practiceOnly?'Full lap · Nordschleife':`Sector ${String(c.number).padStart(2,'0')} · ${esc(c.name)}`;
- o.push(`<div class="kicker">${isRanked?'DAILY RANKED · '+esc(challenge.day):c.practiceOnly?'FULL LAP':'PRACTICE'}</div><div class="sector">${sector}</div>`);
- const lb=leaderboard,you=isRanked&&online?lb?.you:null,F=lb?.field;
- if(!done){o.push(`<div class="big" style="color:var(--red)">DNF</div><div class="of">${esc(latestResult?.reason||'Run ended')}</div>`);}
- else if(you){o.push(`<div class="big">P${you.rank}</div><div class="of">of ${lb.total} ${lb.total===1?'driver':'drivers'} today</div><div class="time">${time(latestResult.time)}</div>`);
-  o.push(you.percentile==null?`<div class="stat">First finisher today. Everyone else is chasing <b>you</b>.</div>`:`<div class="stat">Faster than <b>${you.percentile.toFixed(1)}%</b> of the field</div>`);
-  if(lb.total>1)o.push(`<div class="stat">${you.rank===1?'<b>Fastest today</b>':`+${you.delta.toFixed(3)} s to P1`}${F?.median!=null?` · ${latestResult.time<=F.median?'-':'+'}${Math.abs(latestResult.time-F.median).toFixed(3)} s to the median`:''}</div>`);
-  const curve=F&&F.times&&F.times.length>=2?bellCurve(F.times,latestResult.time,challengeRes&&challengeRes.today?challengeRes.time:null):'';if(curve)o.push(curve+`<div class="note">today's field · shaded: the ${you.percentile==null?'':you.percentile.toFixed(1)+'% of '}drivers you beat</div>`);
-  // standings around you
-  const p1=lb.rows[0]?.time,line=r=>{const row=`${padS('P'+r.rank,5)}  ${padE(r.name,18)} ${time(r.time)}  ${r.rank===1?'':'+'+(r.time-p1).toFixed(3)}`;return r.you?`<span class="you">${esc(row)}</span>`:esc(row);};
-  const rows=you.rank<=10?lb.rows:[...lb.rows.slice(0,3),null,...(lb.near||[])];o.push('<pre>'+rows.map(r=>r?line(r):'  ···').join('\n')+'</pre>');}
- else{o.push(`<div class="big" style="font-size:clamp(60px,12vw,120px)">${time(latestResult.time)}</div>`);
-  if(isRanked)o.push(`<div class="stat">${online?'Submitted.':'Saved on this device. Play on hyzoom.io to join the live leaderboard.'}</div>`);
-  if(lastRun?.newBest)o.push(`<div class="stat"><b>New best</b>${lastRun.prevBest?` · ${(st.time-lastRun.prevBest).toFixed(3)} s`:''} · saved as your ghost</div>`);
-  else if(lastRun?.prevBest)o.push(`<div class="stat">Your best: ${time(lastRun.prevBest)} (+${(st.time-lastRun.prevBest).toFixed(3)} s)</div>`);}
- // head-to-head with the friend who challenged you
- if(isRanked&&done&&challengeRes&&challengeRes.today){const d=latestResult.time-challengeRes.time,sq='';
-  o.push(`<div class="vs">VS ${esc(challengeRes.name)}: ${d<0?`<b style="color:var(--accent)">you win by ${(-d).toFixed(3)} s</b>`:d>0?`<span style="color:var(--red)">${esc(challengeRes.name)} wins by ${d.toFixed(3)} s</span>`:'dead heat'}${sq?`<div class="squares">${sq}</div><div class="note">green where you were faster than ${esc(challengeRes.name)}</div>`:''}</div>`);}
- if(st&&done)o.push(`<div class="note">Top speed ${(st.maxSpeed*3.6).toFixed(0)} km/h · contacts ${st.collisions}${st.penalty?` · penalty +${st.penalty.toFixed(1)} s`:''}${st.driftBest>20?` · best drift ${Math.round(st.driftBest)}`:''}</div>`);
- const acts=[];if(isRanked&&done){acts.push('<button class="primary" data-a="challenge">CHALLENGE A FRIEND</button>','<button data-a="share">SHARE RESULT</button>');}
- if(!isRanked)acts.push('<button class="primary" data-a="again">RACE AGAIN</button>');acts.push('<button data-a="close">BACK TO GARAGE</button>');
+ const lb=leaderboard,you=isRanked&&online?lb?.you:null,F=lb?.field,title=isRanked?'DAILY RANKED · '+challenge.day:c.practiceOnly?'FULL LAP':'PRACTICE';
+ const sector=c.practiceOnly?'Full lap · Nordschleife 20.8 km':`Sector ${String(c.number).padStart(2,'0')} of 7 · ${esc(c.name)}`;
+ // headline box: place in block letters, time, percentile and gaps
+ let head=`<div class="muted">${sector}</div>`;
+ if(!done)head+=`<pre class="bigascii" style="color:var(--red)">${resGlyphs('DNF')}</pre><div>${esc(latestResult?.reason||'Run ended')}</div>`;
+ else if(you){head+=`<pre class="bigascii">${resGlyphs('P'+you.rank)}</pre><div class="muted">of ${lb.total} ${lb.total===1?'driver':'drivers'} today</div><pre class="bigtime">${resGlyphs(time(latestResult.time))}</pre>`;
+  head+=you.percentile==null?`<div>First finisher today. Everyone else is chasing ${span('acc','you')}.</div>`:`<div>faster than ${span('acc',you.percentile.toFixed(1)+'%')} of the field</div>`;
+  if(lb.total>1)head+=`<div class="muted">${you.rank===1?span('acc','fastest today'):`+${you.delta.toFixed(3)} s to P1`}${F?.median!=null?` · ${latestResult.time<=F.median?'-':'+'}${Math.abs(latestResult.time-F.median).toFixed(3)} s to the median`:''}</div>`;}
+ else{head+=`<pre class="bigtime" style="margin-top:14px">${resGlyphs(time(latestResult.time))}</pre>`;
+  if(isRanked)head+=`<div>${online?'Submitted.':'Saved on this device. Play on hyzoom.io to join the live leaderboard.'}</div>`;
+  if(lastRun?.newBest)head+=`<div>${span('acc','new best')}${lastRun.prevBest?` · ${(st.time-lastRun.prevBest).toFixed(3)} s`:''} · saved as your ghost</div>`;
+  else if(lastRun?.prevBest)head+=`<div class="muted">your best ${time(lastRun.prevBest)} (+${(st.time-lastRun.prevBest).toFixed(3)} s)</div>`;}
+ if(st&&done)head+=`<div class="muted">top speed ${(st.maxSpeed*3.6).toFixed(0)} km/h · contacts ${st.collisions}${st.penalty?` · penalty +${st.penalty.toFixed(1)} s`:''}${st.driftBest>20?` · best drift ${Math.round(st.driftBest)}`:''}</div>`;
+ o.push(`<div class="box" data-title="${esc(title)}">${head}</div>`);
+ if(done&&you){const friend=challengeRes&&challengeRes.today?challengeRes.time:null,curve=F&&F.times&&F.times.length>=2?asciiBell(F.times,latestResult.time,friend):'';
+  if(curve)o.push(`<div class="box" data-title="TODAY'S FIELD"><pre>${curve}</pre><div class="muted">${span('acc','#')} the ${you.percentile==null?'':you.percentile.toFixed(1)+'% of '}drivers you beat · ${span('muted',':')} drivers ahead of you</div></div>`);
+  const p1=lb.rows[0]?.time,line=r=>{const row=`${padS('P'+r.rank,5)}  ${padE(r.name,18)} ${time(r.time)}  ${r.rank===1?'':'+'+(r.time-p1).toFixed(3)}`;return r.you?span('you',row):esc(row);};
+  const rows=you.rank<=10?lb.rows:[...lb.rows.slice(0,3),null,...(lb.near||[])];o.push(`<div class="box" data-title="STANDINGS"><pre>${rows.map(r=>r?line(r):'  ···').join('\n')}</pre></div>`);
+  if(challengeRes&&challengeRes.today){const d=latestResult.time-challengeRes.time;o.push(`<div class="box" data-title="VS ${esc(challengeRes.name.toUpperCase())}">${d<0?span('acc',`you win by ${(-d).toFixed(3)} s`):d>0?span('red',`${challengeRes.name} wins by ${d.toFixed(3)} s`):'dead heat'}<div class="muted">${esc(challengeRes.name)} ${time(challengeRes.time)} · you ${time(latestResult.time)}</div></div>`);}}
+ const acts=[];if(isRanked&&done){acts.push('<button class="rbtn on" data-a="challenge">CHALLENGE A FRIEND</button>','<button class="rbtn" data-a="share">SHARE RESULT</button>');}
+ if(!isRanked)acts.push('<button class="rbtn on" data-a="again">RACE AGAIN</button>');acts.push('<button class="rbtn" data-a="close">BACK TO GARAGE</button>');
  o.push(`<div class="acts">${acts.join('')}</div><div class="note" id="resNote"></div>`);
- R.innerHTML=o.join('');for(const b of R.querySelectorAll('button'))b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeResults();else if(a==='again'){closeResults();$(c.practiceOnly?'mLap':'mPractice').click();}else shareResult(a);};
+ R.innerHTML=o.join('');frames();for(const b of R.querySelectorAll('button'))b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeResults();else if(a==='again'){closeResults();$(c.practiceOnly?'mLap':'mPractice').click();}else shareResult(a);};
  $('results').hidden=false;document.body.style.overflow='hidden';$('results').scrollTop=0;setTimeout(()=>R.querySelector('button')?.focus({preventScroll:true}),50);}
 window.addEventListener('keydown',e=>{if(!$('results').hidden&&e.key==='Escape'){e.preventDefault();closeResults();}},true);
 let liveSrc=null;function goLive(){if(!online||liveSrc||typeof EventSource==='undefined')return;liveSrc=new EventSource('/api/live');
