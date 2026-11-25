@@ -48,9 +48,16 @@ fi
 echo "== App user, code and data folder"
 id hyzoom >/dev/null 2>&1 || useradd --system --home "$APP" --shell /usr/sbin/nologin hyzoom
 mkdir -p "$DATA"; chown hyzoom:hyzoom "$DATA"; chmod 700 "$DATA"
-if [[ -d "$APP/.git" ]]; then git -C "$APP" fetch --depth 1 origin "$BRANCH" && git -C "$APP" reset --hard "origin/$BRANCH"
-else git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"; fi
-chown -R hyzoom:hyzoom "$APP"
+# The code folder belongs to the hyzoom user, so git runs as that user (root running git in it is refused).
+if [[ -d "$APP/.git" ]]; then
+  chown -R hyzoom:hyzoom "$APP"
+  sudo -u hyzoom git -C "$APP" fetch --depth 1 origin "$BRANCH" || { echo "ERROR: could not download the latest code."; exit 1; }
+  sudo -u hyzoom git -C "$APP" reset --hard "origin/$BRANCH" || { echo "ERROR: could not update the code."; exit 1; }
+else
+  git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"
+  chown -R hyzoom:hyzoom "$APP"
+fi
+echo "Code version: $(sudo -u hyzoom git -C "$APP" log -1 --format='%h %s' | cut -c1-90)"
 sudo -u hyzoom bash -c "cd $APP && npm test"
 
 echo "== Settings file (kept outside the code, readable by root only)"
@@ -133,5 +140,5 @@ sleep 2
 systemctl --no-pager --lines=5 status hyzoom || true
 echo
 echo "Done. Open https://$DOMAIN  (first HTTPS certificate can take a minute)."
-echo "Update later with:  sudo bash $APP/deploy/gcp-setup.sh $DOMAIN"
+echo "Update later with:  cd ~/RacingGame && git pull && sudo bash deploy/gcp-setup.sh $DOMAIN"
 echo "Usage report:       sudo -u hyzoom node $APP/tools/stats.js"
