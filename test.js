@@ -86,8 +86,13 @@ for (let i = 0; i < R.sectors.length; i++) {
   assert(px >= py - 1e-9, 'TC off allows at least as much peak rear slip');
   ok(`assists off + manual gearbox: replay identical (gear ${a.gear}), auto ignores shift requests, bad assists rejected`); }
 
+// Burnout holds the car while the rears spin; handbrake is part of the replay
+{ const c = R.withCar({ ...flat(0, 'f1'), id: 't' }, 'f1'), a = R.initial(c), s0 = a.s; for (let i = 0; i < 120 * 3; i++) R.step(a, 3, c, straight);
+  assert(a.s - s0 < 1.5, 'burnout creeps ' + (a.s - s0)); const ins = []; const b = R.initial(c); for (let i = 0; i < 300; i++) { const code = i % 50 < 10 ? R.withHandbrake(1) : 1; R.step(b, code, c, straight); ins.push([code, 1]); }
+  assert.equal(R.replay(c, straight, ins).s, b.s); ok(`burnout holds the car (${(a.s - s0).toFixed(2)} m in 3 s); handbrake replays identically`); }
+
 // Input validation
-assert.throws(() => R.replay(R.challenge(), road, [[-1, 1]])); assert.throws(() => R.replay(R.challenge(), road, [[3 * 65536, 1]]));
+assert.throws(() => R.replay(R.challenge(), road, [[-1, 1]])); assert.throws(() => R.replay(R.challenge(), road, [[4 * 65536, 1]]));
 assert.throws(() => R.replay(R.challenge(), road, [[1, 0]])); assert.throws(() => R.replay(R.challenge(), road, [[1.5, 3]]));
 assert.throws(() => R.replay(R.challenge(), road, [[1, R.challenge().maxTicks + 1]]));
 ok('invalid replays rejected');

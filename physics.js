@@ -157,16 +157,16 @@ function tyre(kappa,tanAlpha,fz,out){
 }
 
 // ---- Inputs: 0..15 keyboard bitmask (1 gas, 2 brake, 4 left, 8 right) or 16+ quantised analogue ----
-// A manual gear change rides on any code: +65536 = shift up, +131072 = shift down (one tick).
-const ANALOG=16,SHIFT=65536,MAX_CODE=3*SHIFT-1;
-function decode(code){const sh=Math.floor(code/SHIFT),b=code-sh*SHIFT,shift=sh===1?1:sh===2?-1:0;
- if(b<ANALOG)return {analog:false,shift,gas:b&1?1:0,brake:b&2?1:0,steer:(b&8?1:0)-(b&4?1:0)};
- const c=b-ANALOG,st=c%255,pd=Math.floor(c/255);return {analog:true,shift,steer:(st-127)/127,gas:(pd%16)/15,brake:Math.floor(pd/16)/15};}
-const withShift=(code,dir)=>code+(dir>0?SHIFT:dir<0?2*SHIFT:0);
+// Extras ride on any code: +65536 = shift up, +131072 = shift down (one tick), +196608 = handbrake held.
+const ANALOG=16,SHIFT=65536,MAX_CODE=4*SHIFT-1;
+function decode(code){const sh=Math.floor(code/SHIFT),b=code-sh*SHIFT,shift=sh===1?1:sh===2?-1:0,hand=sh===3;
+ if(b<ANALOG)return {analog:false,shift,hand,gas:b&1?1:0,brake:b&2?1:0,steer:(b&8?1:0)-(b&4?1:0)};
+ const c=b-ANALOG,st=c%255,pd=Math.floor(c/255);return {analog:true,shift,hand,steer:(st-127)/127,gas:(pd%16)/15,brake:Math.floor(pd/16)/15};}
+const withShift=(code,dir)=>code+(dir>0?SHIFT:dir<0?2*SHIFT:0),withHandbrake=code=>code+3*SHIFT;
 function encodeAnalog(steer,gas,brake){return ANALOG+Math.round(clamp(steer,-1,1)*127+127)+255*(Math.round(clamp(gas,0,1)*15)+16*Math.round(clamp(brake,0,1)*15));}
 
 function initial(c){use(c.car);const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<CAR.ratios.length&&rpmFor(wr,gear)>CAR.revStart)gear++;
- return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,boost:.6,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
+ return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,boost:.6,burnout:false,hand:false,drift:0,driftBest:0,driftCalm:0,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
   load:[0,0,0,0],psm:0,slip:[0,0,0,0],surface:[0,0,0,0],ticks:0,offTicks:0,contact:false,invalid:false,done:false,time:null,reason:'',maxSpeed:v,penalty:0,wallTicks:0,collisions:0,lastContact:-10000,cornerSpeed:90,impact:0,airborne:false};}
 
 // Corner-speed estimate for HUD cues and the test driver: grip + aero limited, braking-distance aware.
@@ -188,6 +188,8 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
  if(!a.reverse){a.revHold=still&&inp.brake>.9&&inp.gas<.1?a.revHold+DT:0;if(a.revHold>=.12){a.reverse=true;a.revHold=0;}}
  else if(still&&inp.gas>.5&&inp.brake<.1)a.reverse=false;
  const pedalGas=a.reverse?a.brake:a.gas,pedalBrake=a.reverse?a.gas:a.brake;
+ // Burnout: throttle and brake together at (near) standstill holds the fronts and lets the rears spin.
+ a.burnout=!a.reverse&&inp.gas>.5&&inp.brake>.5&&Math.abs(a.vx)<4;a.hand=inp.hand;
  const m=CAR.mass,Iz=CAR.yawInertia,L_=CAR.wheelbase,h=CAR.cgHeight;let contactNow=false,impact=0;
  for(let sub=0;sub<SUB;sub++){
   const p=road.at(a.s),u=a.vx,v=a.vy,r=a.yawRate,speed=Math.sqrt(u*u+v*v),cs=cos(a.heading),sn=sin(a.heading);
@@ -208,7 +210,7 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
   a.airborne=fz[0]+fz[1]+fz[2]+fz[3]<m*G*.15;
   // Drivetrain
   const g=a.gear,gr=a.reverse?-CAR.reverseRatio*CAR.finalDrive:gearRatio(g),wr=(a.w[2]+a.w[3])/2,rpmWheels=wr*gr*60/TAU;
-  let rpm=rpmWheels,thr=a.reverse?(a.vx<-7?0:Math.min(pedalGas,.75)):pedalGas*(1-pedalBrake*.85);
+  let rpm=rpmWheels,thr=a.reverse?(a.vx<-7?0:Math.min(pedalGas,.75)):a.burnout?pedalGas:pedalGas*(1-pedalBrake*.85);
   if(rpmWheels<CAR.launchRpm&&thr>.05)rpm=Math.max(rpmWheels,CAR.launchRpm+thr*1800); // clutch slip at very low road speed
   rpm=Math.max(rpm,CAR.idle);a.rpm=rpm;
   // Turbo: boost follows the throttle with a lag that shortens as revs rise.
@@ -230,18 +232,18 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
    const wu=u-r*W.y,wv=v+r*W.x,cd=cos(st),sd=sin(st),tu=wu*cd+wv*sd,tv=-wu*sd+wv*cd;
    const wd=a.d+W.x*sn+W.y*cs,side=sgn(wd),edge=Math.abs(wd);
    const surf=edge<HALF?0:(edge<HALF+.9&&road.curb(a.s+W.x,side))?1:edge<HALF+.55?1:2; // 0 asphalt, 1 kerb/verge, 2 grass
-   a.surface[i]=surf;tyreOut.grip=surf===0?1:surf===1?.9:.55;
+   a.surface[i]=surf;tyreOut.grip=(surf===0?1:surf===1?.9:.55)*(a.burnout&&!front?.5:1); // a spinning tyre on its own smoke grips less
    const den=Math.max(Math.abs(tu),3),kappa=(a.w[i]*R-tu)/den,ta=tv/den;
    tyre(kappa,ta,fz[i],tyreOut);
    const fx=tyreOut.fx,fy=tyreOut.fy;const nk=kappa/CAR.peakRatio,na=ta/CAR.peakSlip;a.slip[i]=Math.sqrt(nk*nk+na*na);a.load[i]=fz[i];
    // ABS per wheel, TC on driven wheels
    const target=-CAR.peakRatio*AS.abs*(front?1:.86); // ABS slip target; lower at the rear (EBD) for stability
-   if(!AF.abs)a.abs[i]=1;else if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
+   if(!AF.abs||a.burnout||(!front&&a.hand))a.abs[i]=1;else if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
    else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
    if(!front&&kappa>0)driveSlip=Math.max(driveSlip,a.slip[i]); // combined slip of a driven tyre under power
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
    const I=ty.inertia+(front?0:reflected),drive=front?0:axle/2+(i===2?-lock:lock);
-   const brakeT=Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]),roll=CAR.rolling*fz[i]*R;
+   const brakeT=(front||!a.burnout?Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]):0)+(!front&&a.hand?CAR.brakeR*1.6:0),roll=CAR.rolling*fz[i]*R;
    let w=a.w[i];const net=drive-fx*R,dw=H*net/(I+H*tyreOut.dfx*R*R/den);w+=dw;
    const bt=(brakeT+roll)*H/I;if(w>0)w=Math.max(0,w-bt);else w=Math.min(0,w+bt);
    if(!a.reverse&&w<0&&tu>=0)w=0;a.w[i]=w;
@@ -251,7 +253,7 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
   }
   // Traction control: proportional slip-target controller on the driven wheels (cuts harder the further past target).
   {const tcT=AS.tc-(AS.tc-1.4)*clamp((u-20)/20,0,1),ex=driveSlip-tcT; // looser in slow corners, tighter at speed
-  a.tc=!AF.tc?1:ex>0?Math.max(.05,a.tc-H*(12+90*ex)):Math.min(1,a.tc+H*(ex<-.4?6:2.5));}
+  a.tc=!AF.tc||a.burnout?1:ex>0?Math.max(.05,a.tc-H*(12+90*ex)):Math.min(1,a.tc+H*(ex<-.4?6:2.5));}
   // Aero drag, grade, off-road drag
   const drag=.5*CAR.airDensity*CAR.dragArea*u*Math.abs(u),offDrag=(a.surface[0]===2?1:0)+(a.surface[1]===2?1:0)+(a.surface[2]===2?1:0)+(a.surface[3]===2?1:0);
   Fx-=drag+m*G*p.grade+offDrag*.06*m*G*sgn(u);
@@ -279,9 +281,12 @@ function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code
  else if(!AF.auto){ // manual gearbox: shift on request; refuse a downshift that would over-rev the engine
   if(inp.shift>0&&a.gear<CAR.ratios.length&&a.shift===0){a.gear++;a.shift=.08;}
   else if(inp.shift<0&&a.gear>1&&a.shift===0&&rpmFor(wr2,a.gear-1)<CAR.redline*1.03){a.gear--;a.shift=.08;}}
+ else if(a.burnout){a.gear=1;}
  else if(a.shift===0){if(a.gear<CAR.ratios.length&&rpmNow>CAR.shiftUp&&a.gas>.5){a.gear++;a.shift=.18;}
   else if(a.gear>1&&rpmFor(wr2,a.gear-1)<(a.brake>.2?CAR.shiftDownBrake:CAR.shiftDown)&&(a.brake>.2||rpmNow<CAR.shiftDownLow)){a.gear--;a.shift=.18;}}
- a.v=Math.sqrt(a.vx*a.vx+a.vy*a.vy);a.ticks++;a.maxSpeed=Math.max(a.maxSpeed,a.v);a.contact=contactNow;a.impact=impact;
+ a.v=Math.sqrt(a.vx*a.vx+a.vy*a.vy);a.ticks++;
+ // Drift meter (display only): sideslip held above 12 degrees at speed builds a score; a spin or a hit ends it.
+ {const sl=Math.abs(atan2(a.vy,Math.max(Math.abs(a.vx),.1)));if(sl>.21&&sl<1.3&&a.v>12&&!contactNow){a.drift=(a.drift||0)+sl*a.v*DT*10;a.driftCalm=0;}else{a.driftCalm=(a.driftCalm||0)+DT;if(a.driftCalm>1.2||sl>=1.3||contactNow){if((a.drift||0)>(a.driftBest||0))a.driftBest=a.drift;a.drift=0;}}}a.maxSpeed=Math.max(a.maxSpeed,a.v);a.contact=contactNow;a.impact=impact;
  if(a.ticks%12===1)a.cornerSpeed=safeSpeed(road,a.s);
  // Track limits: all four wheels beyond the white line (plus kerb allowance)
  let off=true;for(let i=0;i<4;i++){const W=TW[i],wd=Math.abs(a.d+W.x*sin(a.heading)+W.y*cos(a.heading));if(wd<PENALTY_LINE)off=false;}
@@ -295,6 +300,6 @@ function replay(c,road,runs){if(!CARS[c.car])throw Error('Unknown car');if(c.ass
  for(let i=0;i<runs.length;i++){const x=runs[i];if(!Array.isArray(x)||x.length!==2||!Number.isInteger(x[0])||x[0]<0||x[0]>MAX_CODE||!Number.isInteger(x[1])||x[1]<1||x[1]>max||a.ticks+x[1]>max)throw Error('Bad input');
   for(let j=0;j<x[1];j++){if(a.done)throw Error('Trailing input');step(a,x[0],c,road);}}return a;}
 
-const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,assistsFor,assistText,ASSIST_KEYS,ASSIST_NAMES,withShift,SHIFT,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
+const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,assistsFor,assistText,ASSIST_KEYS,ASSIST_NAMES,withShift,withHandbrake,SHIFT,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.Race=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

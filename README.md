@@ -42,6 +42,8 @@ npm test
 | G / GHOST | Ghost of your best run on/off |
 | M / SOUND | Sound on/off |
 | E / Q (pad bumpers) | Shift up / down when automatic gears are off |
+| Space (pad B) | Handbrake — locks the rears to start a drift |
+| Gas + brake at a stop | Burnout (fronts held, rears spin) |
 | PAINT | Car colour (lobby) |
 | DETAIL | Manual quality or automatic scaling toward 60 FPS |
 
