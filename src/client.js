@@ -421,14 +421,33 @@ const vsId=(()=>{try{const v=new URLSearchParams(location.search).get('vs');retu
 let challengeRes=null;
 async function loadChallenge(){if(!vsId||!online)return;try{challengeRes=await api('result?id='+vsId);}catch{challengeRes=null;}showChallengeBanner();}
 function showChallengeBanner(){if(!challengeRes)return;const c=challengeRes;$('mNote').innerHTML=c.today?`<span class="challenge-banner">${esc(c.name)} challenged you: ${time(c.time)} on today's sector (P${c.rank} of ${c.total}). Beat it.</span>`:`<span class="challenge-banner">${esc(c.name)}'s challenge was for an earlier sector. Today's is new: set a time and send one back.</span>`;}
+// Distribution of today's times as a smooth bell curve (kernel density). Faster times on the left;
+// the shaded part is everyone you beat. Markers: P1, median, you, and the friend who challenged you.
+function bellCurve(times,mine,friend){if(!Array.isArray(times)||times.length<2)return '';const n=times.length,lo=times[0],hi=times[n-1],mean=times.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(times.reduce((a,b)=>a+(b-mean)*(b-mean),0)/n)||.5;
+ const q=f=>times[Math.min(n-1,Math.max(0,Math.round(f*(n-1))))],iqr=q(.75)-q(.25),h=Math.max(.08,.9*Math.min(sd,iqr>0?iqr/1.34:sd)*Math.pow(n,-.2)),a=Math.min(lo,mine??lo,friend??lo)-2.5*h,b=Math.max(hi,mine??hi,friend??hi)+2.5*h;
+ const W=720,H=250,top=34,base=204,N=140,xs=[],ys=[];let ymax=0;for(let i=0;i<=N;i++){const x=a+(b-a)*i/N;let y=0;for(const t of times){const z=(x-t)/h;y+=Math.exp(-.5*z*z);}xs.push(x);ys.push(y);ymax=Math.max(ymax,y);}
+ const X=t=>((t-a)/(b-a))*W,Y=y=>base-(y/ymax)*(base-top),pts=xs.map((x,i)=>`${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`);
+ const curve='M'+pts.join(' L'),area=`M0,${base} L${pts.join(' L')} L${W},${base} Z`,med=q(.5);
+ const anchor=t=>X(t)<70?'start':X(t)>W-70?'end':'middle',tx=t=>Math.min(W-2,Math.max(2,X(t)));
+ const line=(t,col,wd,dash,y1)=>t==null?'':`<line x1="${X(t)}" x2="${X(t)}" y1="${y1}" y2="${base}" stroke="${col}" stroke-width="${wd}" ${dash?'stroke-dasharray="4 4"':''}/>`;
+ const tick=(t,label,col)=>`<text x="${tx(t)}" y="${base+20}" fill="${col}" font-size="12" text-anchor="${anchor(t)}">${esc(label)}</text>`;
+ const youLabel=mine==null?'':`<text x="${tx(mine)}" y="${top-8}" fill="var(--accent)" font-size="15" font-weight="700" text-anchor="${anchor(mine)}">YOU ${time(mine).replace(/^00:/,'')}</text>`;
+ const friendLabel=friend==null?'':`<text x="${X(friend)+(X(friend)>W-120?-6:6)}" y="${base-8}" fill="var(--amber)" font-size="12" text-anchor="${X(friend)>W-120?'end':'start'}">FRIEND</text>`;
+ return `<svg class="bell" viewBox="0 0 ${W} ${H}" role="img" aria-label="Distribution of today's times"><defs><clipPath id="beat"><rect x="${mine==null?W:X(mine)}" y="0" width="${W}" height="${H}"/></clipPath></defs>
+ <path d="${area}" fill="var(--line)" opacity=".35"/><path d="${area}" fill="var(--accent)" opacity=".28" clip-path="url(#beat)"/><path d="${curve}" fill="none" stroke="var(--ink)" stroke-width="2"/>
+ <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="var(--line)"/>${line(lo,'var(--muted)',1.5,false,top+10)}${line(med,'var(--muted)',1.5,true,top)}${line(friend,'var(--amber)',2,false,top+10)}${line(mine,'var(--accent)',3,false,top-2)}${youLabel}${friendLabel}
+ ${tick(lo,'P1 '+time(lo).replace(/^00:/,''),'var(--muted)')}${Math.abs(X(med)-X(lo))>110&&Math.abs(X(hi)-X(med))>90?tick(med,'MEDIAN '+time(med).replace(/^00:/,''),'var(--muted)'):''}${tick(hi,time(hi).replace(/^00:/,''),'var(--muted)')}
+ <text x="${W}" y="${H-2}" fill="var(--muted)" font-size="11" text-anchor="end">slower →</text><text x="0" y="${H-2}" fill="var(--muted)" font-size="11">← faster</text></svg>`;}
+// The same shape in text, for sharing: block characters per slice of the field, a caret under you.
+function asciiCurve(F,mine){if(!F||!F.hist||F.hist.length<2)return '';const blocks='▁▂▃▄▅▆▇█',mx=Math.max(...F.hist),bar=F.hist.map(c=>c?blocks[Math.min(7,Math.round(c/mx*7))]:' ').join(''),k=Math.min(F.hist.length-1,Math.max(0,Math.floor((mine-F.lo)/F.binWidth)));return bar+'\n'+' '.repeat(k)+'^ me';}
 const SITE=()=>/^https:/.test(location.protocol)?location.origin:'https://hyzoom.io';
 // Ten squares, one per tenth of the sector, against a reference (the median driver or a friend).
 function squares(mine,minesTotal,ref,refTotal){if(!Array.isArray(mine)||!Array.isArray(ref)||mine.length!==9||ref.length!==9)return '';const a=[...mine,minesTotal],b=[...ref,refTotal];let out='';
  for(let k=0;k<10;k++){const sa=a[k]-(k?a[k-1]:0),sb=b[k]-(k?b[k-1]:0),d=sa-sb;out+=d<-.05?'🟩':d>.05?'🟥':'🟨';}return out;}
 function shareText(){const lb=leaderboard,you=lb?.you,F=lb?.field,t=attempt?.time;if(t==null)return '';
- const top=you&&you.percentile!=null?Math.max(1,Math.ceil(100-you.percentile)):null,sq=F&&F.you&&F.medianSplits?squares(F.you,t,F.medianSplits,F.median):'';
+ const top=you&&you.percentile!=null?Math.max(1,Math.ceil(100-you.percentile)):null,sq=lb&&lb.total>2?asciiCurve(F,t):'';
  const link=attempt?.share?`${SITE()}/?vs=${attempt.share}`:SITE();
- return [`HYZOOM ${challenge.day} · S${challenge.number} ${challenge.name}`,`${you?`P${you.rank}/${lb.total} · `:''}${time(t)}${top?` · top ${top}%`:you&&lb.total===1?' · first finisher':''}`,...(sq?[sq]:[]),`Beat me: ${link}`].join('\n');}
+ return [`HYZOOM ${challenge.day} · S${challenge.number} ${challenge.name}`,`${you?`P${you.rank}/${lb.total} · `:''}${time(t)}${you&&you.percentile!=null?` · faster than ${Math.round(you.percentile)}%`:you&&lb.total===1?' · first finisher':''}`,...(sq?[sq]:[]),`Beat me: ${link}`].join('\n');}
 async function shareResult(mode){const text=shareText(),note=$('resNote');if(!text)return;
  const link=attempt?.share?`${SITE()}/?vs=${attempt.share}`:SITE();
  if(mode==='challenge'){const msg=`I ran ${time(attempt.time)} on today's Hyzoom sector. Beat it: ${link}`;if(navigator.share){try{await navigator.share({title:'Hyzoom challenge',text:msg,url:link});return;}catch(e){if(e&&e.name==='AbortError')return;}}
@@ -444,7 +463,7 @@ function showResults(isRanked){const R=$('resBody'),st=lastRun?.state,c=lastRun?
  else if(you){o.push(`<div class="big">P${you.rank}</div><div class="of">of ${lb.total} ${lb.total===1?'driver':'drivers'} today</div><div class="time">${time(latestResult.time)}</div>`);
   o.push(you.percentile==null?`<div class="stat">First finisher today. Everyone else is chasing <b>you</b>.</div>`:`<div class="stat">Faster than <b>${you.percentile.toFixed(1)}%</b> of the field</div>`);
   if(lb.total>1)o.push(`<div class="stat">${you.rank===1?'<b>Fastest today</b>':`+${you.delta.toFixed(3)} s to P1`}${F?.median!=null?` · ${latestResult.time<=F.median?'-':'+'}${Math.abs(latestResult.time-F.median).toFixed(3)} s to the median`:''}</div>`);
-  const sq=F&&F.you&&F.medianSplits?squares(F.you,latestResult.time,F.medianSplits,F.median):'';if(sq)o.push(`<div class="squares">${sq}</div><div class="note">each square is a tenth of the sector vs the median driver: 🟩 faster · 🟨 even · 🟥 slower</div>`);
+  const curve=F&&F.times&&F.times.length>=2?bellCurve(F.times,latestResult.time,challengeRes&&challengeRes.today?challengeRes.time:null):'';if(curve)o.push(curve+`<div class="note">today's field · shaded: the ${you.percentile==null?'':you.percentile.toFixed(1)+'% of '}drivers you beat</div>`);
   // standings around you
   const p1=lb.rows[0]?.time,line=r=>{const row=`${padS('P'+r.rank,5)}  ${padE(r.name,18)} ${time(r.time)}  ${r.rank===1?'':'+'+(r.time-p1).toFixed(3)}`;return r.you?`<span class="you">${esc(row)}</span>`:esc(row);};
   const rows=you.rank<=10?lb.rows:[...lb.rows.slice(0,3),null,...(lb.near||[])];o.push('<pre>'+rows.map(r=>r?line(r):'  ···').join('\n')+'</pre>');}
@@ -453,14 +472,14 @@ function showResults(isRanked){const R=$('resBody'),st=lastRun?.state,c=lastRun?
   if(lastRun?.newBest)o.push(`<div class="stat"><b>New best</b>${lastRun.prevBest?` · ${(st.time-lastRun.prevBest).toFixed(3)} s`:''} · saved as your ghost</div>`);
   else if(lastRun?.prevBest)o.push(`<div class="stat">Your best: ${time(lastRun.prevBest)} (+${(st.time-lastRun.prevBest).toFixed(3)} s)</div>`);}
  // head-to-head with the friend who challenged you
- if(isRanked&&done&&challengeRes&&challengeRes.today){const d=latestResult.time-challengeRes.time,sq=F?.you?squares(F.you,latestResult.time,challengeRes.splits,challengeRes.time):'';
+ if(isRanked&&done&&challengeRes&&challengeRes.today){const d=latestResult.time-challengeRes.time,sq='';
   o.push(`<div class="vs">VS ${esc(challengeRes.name)}: ${d<0?`<b style="color:var(--accent)">you win by ${(-d).toFixed(3)} s</b>`:d>0?`<span style="color:var(--red)">${esc(challengeRes.name)} wins by ${d.toFixed(3)} s</span>`:'dead heat'}${sq?`<div class="squares">${sq}</div><div class="note">green where you were faster than ${esc(challengeRes.name)}</div>`:''}</div>`);}
  if(st&&done)o.push(`<div class="note">Top speed ${(st.maxSpeed*3.6).toFixed(0)} km/h · contacts ${st.collisions}${st.penalty?` · penalty +${st.penalty.toFixed(1)} s`:''}${st.driftBest>20?` · best drift ${Math.round(st.driftBest)}`:''}</div>`);
  const acts=[];if(isRanked&&done){acts.push('<button class="primary" data-a="challenge">CHALLENGE A FRIEND</button>','<button data-a="share">SHARE RESULT</button>');}
  if(!isRanked)acts.push('<button class="primary" data-a="again">RACE AGAIN</button>');acts.push('<button data-a="close">BACK TO GARAGE</button>');
  o.push(`<div class="acts">${acts.join('')}</div><div class="note" id="resNote"></div>`);
  R.innerHTML=o.join('');for(const b of R.querySelectorAll('button'))b.onclick=()=>{const a=b.dataset.a;if(a==='close')closeResults();else if(a==='again'){closeResults();$(c.practiceOnly?'mLap':'mPractice').click();}else shareResult(a);};
- $('results').hidden=false;document.body.style.overflow='hidden';setTimeout(()=>R.querySelector('button')?.focus(),50);}
+ $('results').hidden=false;document.body.style.overflow='hidden';$('results').scrollTop=0;setTimeout(()=>R.querySelector('button')?.focus({preventScroll:true}),50);}
 window.addEventListener('keydown',e=>{if(!$('results').hidden&&e.key==='Escape'){e.preventDefault();closeResults();}},true);
 let liveSrc=null;function goLive(){if(!online||liveSrc||typeof EventSource==='undefined')return;liveSrc=new EventSource('/api/live');
  liveSrc.onmessage=async()=>{await new Promise(r=>setTimeout(r,Math.random()*2500));try{const data=await api('daily');if(data.challenge.id!==challenge.id)return;leaderboard=data.leaderboard;attempt=data.attempt||attempt;drawBoard();}catch{}};}

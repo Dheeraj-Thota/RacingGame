@@ -151,7 +151,9 @@ function finishedList(day) {
   const times = list.map(x => x.time), lo = times[0], hi = times.at(-1), bins = 12, w = Math.max((hi - lo) / bins, .001), hist = Array(bins).fill(0);
   for (const t of times) hist[Math.min(bins - 1, Math.floor((t - lo) / w))]++;
   const sp = list.map(x => x.splits).filter(x => Array.isArray(x) && x.length === SPLITS - 1);
-  list.summary = list.length ? { lo, hi, median: median(times), hist, binWidth: w, leader: list[0].splits, medianSplits: sp.length ? Array.from({ length: SPLITS - 1 }, (_, k) => median(sp.map(x => x[k]))) : null, count: list.length } : null;
+  // Up to 1,500 evenly spaced quantiles of the field's times, enough to draw its distribution curve.
+  const sample = times.length <= 1500 ? times : Array.from({ length: 1500 }, (_, k) => times[Math.round(k * (times.length - 1) / 1499)]);
+  list.summary = list.length ? { lo, hi, median: median(times), hist, binWidth: w, times: sample, leader: list[0].splits, medianSplits: sp.length ? Array.from({ length: SPLITS - 1 }, (_, k) => median(sp.map(x => x[k]))) : null, count: list.length } : null;
   Object.assign(cache, { day, at: Date.now(), list });
   return list;
 }
