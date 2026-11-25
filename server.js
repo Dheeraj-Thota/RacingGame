@@ -35,6 +35,8 @@ const GSI = 'https://accounts.google.com/gsi/';
 const CSP = ["default-src 'none'", `script-src ${scriptHashes.join(' ')}${AUTH ? ' ' + GSI + 'client' : ''}`, `style-src 'unsafe-inline'${AUTH ? ' ' + GSI + 'style' : ''}`,
   "img-src 'self' data:", `connect-src 'self'${AUTH ? ' ' + GSI : ''}`, ...(AUTH ? [`frame-src ${GSI}`] : []),
   "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'"].join('; ');
+const PRIVACY = fs.readFileSync(path.join(__dirname, 'src', 'privacy.html'));
+const PRIVACY_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const PAGE_ETAG = '"' + crypto.createHash('sha256').update(PAGE).digest('hex').slice(0, 32) + '"';
 
 function baseHeaders(res) {
@@ -195,6 +197,10 @@ async function handle(req, res) {
     if (req.headers['if-none-match'] === PAGE_ETAG) { res.writeHead(304, headers); return res.end(); }
     res.writeHead(200, { ...headers, 'Content-Length': PAGE.length });
     return res.end(req.method === 'HEAD' ? undefined : PAGE);
+  }
+  if (p === '/privacy' && (req.method === 'GET' || req.method === 'HEAD')) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': PRIVACY_CSP, 'Cache-Control': 'public, max-age=3600', 'Content-Length': PRIVACY.length });
+    return res.end(req.method === 'HEAD' ? undefined : PRIVACY);
   }
   if (!p.startsWith('/api/')) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
 
