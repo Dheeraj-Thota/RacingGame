@@ -4,36 +4,44 @@
 // body size/type checks, same-origin checks on writes, parameterised SQL only, no stack traces to clients.
 const http = require('node:http'), fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
-const Race = require('./physics.js'), road = Race.circuit(require('./track.json'));
+const Race = require('./physics.js'), Names = require('./names.js'), road = Race.circuit(require('./track.json'));
 
 const SECURE = process.env.COOKIE_SECURE === '1';      // site is served over HTTPS
 const TRUST_PROXY = process.env.TRUST_PROXY === '1';   // behind a local reverse proxy (Caddy) that appends X-Forwarded-For
 const MAX_BODY = 512 * 1024;
+// Sign-in: with GOOGLE_CLIENT_ID set, ranked attempts belong to a Google account (one per account per day).
+// Without it (local development) the anonymous cookie is the identity, as before.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const AUTH = !!GOOGLE_CLIENT_ID;
 
 // ---------- database ----------
 const db = new DatabaseSync(process.env.DB_PATH || path.join(__dirname, 'redline-v6.sqlite'));
 db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000; CREATE TABLE IF NOT EXISTS attempts (day TEXT NOT NULL, player TEXT NOT NULL, token TEXT UNIQUE NOT NULL, started INTEGER NOT NULL, status TEXT NOT NULL, name TEXT NOT NULL, time REAL, reason TEXT, assists TEXT NOT NULL DEFAULT '{}', PRIMARY KEY(day,player));");
 try { db.exec('ALTER TABLE attempts ADD COLUMN splits TEXT'); } catch {} // split times at each tenth of the sector, from the server's own re-simulation
+try { db.exec('ALTER TABLE attempts ADD COLUMN inputs TEXT'); } catch {} // the validated replay, so others can race it as a ghost
+db.exec('CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, sub TEXT NOT NULL, created INTEGER NOT NULL)');
+db.prepare('DELETE FROM sessions WHERE created < ?').run(Date.now() - 90 * 864e5);
 
 const token = () => crypto.randomBytes(24).toString('hex');
 // The ranked config is the day's challenge (main car) with the assists the driver chose at start.
 const ranked = (day, assists) => Race.withCar(Race.challenge(day), Race.MAIN_CAR, assists);
 const cleanAssists = x => { const out = {}; if (x && typeof x === 'object') for (const k of Race.ASSIST_KEYS) if (typeof x[k] === 'boolean') out[k] = x[k]; return Race.assistsFor(Race.MAIN_CAR, out); };
-// Names: no control, zero-width or text-direction characters; collapsed spaces; 24 characters max.
-const cleanName = x => String(x || '').replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24) || 'Driver';
+// Names are cleaned and checked for slurs/profanity by names.js (shared with the page).
 
 // ---------- page (held in memory, with a CSP hash for its single inline script) ----------
 const PAGE = fs.readFileSync(path.join(__dirname, 'index.html'));
 const scriptHashes = [...PAGE.toString().matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => `'sha256-${crypto.createHash('sha256').update(m[1]).digest('base64')}'`);
-const CSP = ["default-src 'none'", `script-src ${scriptHashes.join(' ')}`, "style-src 'unsafe-inline'", "img-src 'self' data:", "connect-src 'self'",
+const GSI = 'https://accounts.google.com/gsi/';
+const CSP = ["default-src 'none'", `script-src ${scriptHashes.join(' ')}${AUTH ? ' ' + GSI + 'client' : ''}`, `style-src 'unsafe-inline'${AUTH ? ' ' + GSI + 'style' : ''}`,
+  "img-src 'self' data:", `connect-src 'self'${AUTH ? ' ' + GSI : ''}`, ...(AUTH ? [`frame-src ${GSI}`] : []),
   "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'", "object-src 'none'"].join('; ');
 const PAGE_ETAG = '"' + crypto.createHash('sha256').update(PAGE).digest('hex').slice(0, 32) + '"';
 
 function baseHeaders(res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Referrer-Policy', AUTH ? 'strict-origin-when-cross-origin' : 'no-referrer'); // Google sign-in needs the origin
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', AUTH ? 'same-origin-allow-popups' : 'same-origin'); // sign-in popup
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()');
   if (SECURE) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
@@ -52,6 +60,8 @@ const RULES = {
   startDay: [30, 24 * 3600e3],
   finish: [12, 10 * 60e3],   // replay submissions (each one is re-simulated)
   live: [20, 60e3],          // live-stream connects
+  auth: [10, 10 * 60e3],     // sign-in attempts
+  ghost: [30, 60e3],         // ghost downloads
 };
 const hits = new Map();
 function limited(rule, ip) {
@@ -68,6 +78,41 @@ function identity(req, res) {
   if (!id) { id = token(); res.setHeader('Set-Cookie', 'redline=' + id + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000' + (SECURE ? '; Secure' : '')); }
   return id;
 }
+// Signed-in player (Google account), from the session cookie.
+function sessionSub(req) {
+  const t = (req.headers.cookie || '').match(/(?:^|;\s*)hz_session=([a-f0-9]{48})(?:;|$)/)?.[1];
+  if (!t) return null;
+  const row = db.prepare('SELECT sub, created FROM sessions WHERE token=?').get(t);
+  return row && Date.now() - row.created < 90 * 864e5 ? row.sub : null;
+}
+// The identity ranked attempts are keyed by: the Google account when sign-in is on, else the anonymous cookie.
+function player(req, res) { if (!AUTH) return identity(req, res); const sub = sessionSub(req); return sub ? 'g:' + sub : null; }
+
+// Google ID tokens are verified locally: RS256 signature against Google's published keys, issuer, audience and expiry.
+let jwks = { keys: [], until: 0 };
+async function googleKeys() {
+  if (Date.now() < jwks.until) return jwks.keys;
+  const r = await fetch('https://www.googleapis.com/oauth2/v3/certs', { signal: AbortSignal.timeout(5000) });
+  if (!r.ok) throw Error('Google keys unavailable');
+  const age = Number((r.headers.get('cache-control') || '').match(/max-age=(\d+)/)?.[1] || 3600);
+  jwks = { keys: (await r.json()).keys || [], until: Date.now() + Math.min(age, 86400) * 1000 };
+  return jwks.keys;
+}
+const b64url = s => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+async function verifyGoogle(credential, keys) {
+  const parts = String(credential || '').split('.');
+  if (parts.length !== 3 || credential.length > 4096) throw new BadRequest('Bad sign-in token');
+  let head, claims; try { head = JSON.parse(b64url(parts[0])); claims = JSON.parse(b64url(parts[1])); } catch { throw new BadRequest('Bad sign-in token'); }
+  if (head.alg !== 'RS256') throw new BadRequest('Bad sign-in token');
+  const jwk = (keys || await googleKeys()).find(k => k.kid === head.kid && k.kty === 'RSA');
+  if (!jwk) throw new BadRequest('Bad sign-in token');
+  const ok = crypto.verify('RSA-SHA256', Buffer.from(parts[0] + '.' + parts[1]), crypto.createPublicKey({ key: jwk, format: 'jwk' }), b64url(parts[2]));
+  const now = Date.now() / 1000;
+  if (!ok || !['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) || claims.aud !== GOOGLE_CLIENT_ID || !(claims.exp > now) || !(claims.iat < now + 300) || typeof claims.sub !== 'string' || !claims.sub)
+    throw new BadRequest('Sign-in could not be verified');
+  return claims.sub;
+}
+
 function json(res, data, status = 200, extra = {}) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra }); res.end(JSON.stringify(data)); }
 const tooMany = (res, wait) => json(res, { error: 'Too many requests. Try again shortly.' }, 429, { 'Retry-After': String(wait) });
 
@@ -158,25 +203,55 @@ async function handle(req, res) {
   const c = Race.challenge();
   if (p === '/api/daily' && req.method === 'GET') {
     if ((wait = limited('daily', ip))) return tooMany(res, wait);
-    const player = identity(req, res);
-    return json(res, { challenge: c, attempt: current(player, c), leaderboard: board(player, c) });
+    const who = player(req, res);
+    return json(res, { challenge: c, attempt: who && current(who, c), leaderboard: board(who, c), auth: { required: AUTH, clientId: GOOGLE_CLIENT_ID || null, signedIn: !AUTH || !!who } });
+  }
+  if (p === '/api/auth/google' && req.method === 'POST') {
+    if (!AUTH) return json(res, { error: 'Sign-in is not enabled' }, 404);
+    if (!sameOrigin(req)) return json(res, { error: 'Forbidden' }, 403);
+    if ((wait = limited('auth', ip))) return tooMany(res, wait);
+    const b = await body(req), sub = await verifyGoogle(b.credential), t = token();
+    db.prepare('INSERT INTO sessions(token,sub,created) VALUES(?,?,?)').run(t, sub, Date.now());
+    return json(res, { signedIn: true }, 200, { 'Set-Cookie': 'hz_session=' + t + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=' + 90 * 86400 + (SECURE ? '; Secure' : '') });
+  }
+  if (p === '/api/auth/logout' && req.method === 'POST') {
+    if (!sameOrigin(req)) return json(res, { error: 'Forbidden' }, 403);
+    const t = (req.headers.cookie || '').match(/(?:^|;\s*)hz_session=([a-f0-9]{48})(?:;|$)/)?.[1];
+    if (t) db.prepare('DELETE FROM sessions WHERE token=?').run(t);
+    return json(res, { signedIn: false }, 200, { 'Set-Cookie': 'hz_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (SECURE ? '; Secure' : '') });
+  }
+  // Another driver's validated replay, to race as a ghost. Only after you have used today's ranked attempt,
+  // so nobody can copy the leader's line before their own ranked run.
+  if (p === '/api/ghost' && req.method === 'GET') {
+    if ((wait = limited('ghost', ip))) return tooMany(res, wait);
+    const who = player(req, res), mine = who && current(who, c);
+    if (!mine || mine.status === 'running') return json(res, { error: 'Finish your ranked run to race other ghosts.' }, 403);
+    const list = finishedList(c.day), me = list.findIndex(x => x.player === who), which = url.searchParams.get('which');
+    const i = which === 'leader' ? 0 : which === 'ahead' ? (me > 0 ? me - 1 : me < 0 ? list.length - 1 : -1) : -1;
+    if (i < 0 || !list[i]) return json(res, { error: which === 'ahead' ? 'Nobody ahead of you. You are P1.' : 'No ghost available yet.' }, 404);
+    const row = db.prepare("SELECT name,time,assists,inputs FROM attempts WHERE day=? AND player=? AND status='finished'").get(c.day, list[i].player);
+    if (!row || !row.inputs) return json(res, { error: 'No ghost available yet.' }, 404);
+    return json(res, { name: row.name, time: row.time, rank: i + 1, assists: parse(row.assists) || {}, inputs: parse(row.inputs) });
   }
   if (req.method === 'POST' && (p === '/api/start' || p === '/api/finish')) {
     if (!sameOrigin(req)) return json(res, { error: 'Forbidden' }, 403);
-    const player = identity(req, res);
+    const who = player(req, res);
+    if (!who) return json(res, { error: 'Sign in to race the ranked daily.' }, 401);
     if (p === '/api/start') {
       if ((wait = limited('start', ip) || limited('startDay', ip))) return tooMany(res, wait);
       const b = await body(req);
       if (b.day !== c.day) return json(res, { error: 'Challenge has changed. Reload.' }, 409);
+      const named = Names.check(b.name);
+      if (!named.ok) return json(res, { error: named.error }, 400);
       const assists = cleanAssists(b.assists), t = token();
-      try { db.prepare("INSERT INTO attempts(day,player,token,started,status,name,assists) VALUES(?,?,?,?,'running',?,?)").run(c.day, player, t, Date.now(), cleanName(b.name), JSON.stringify(assists)); }
+      try { db.prepare("INSERT INTO attempts(day,player,token,started,status,name,assists) VALUES(?,?,?,?,'running',?,?)").run(c.day, who, t, Date.now(), named.name, JSON.stringify(assists)); }
       catch { return json(res, { error: 'Your ranked attempt has already been used.' }, 409); }
       return json(res, { token: t, challenge: ranked(c.day, assists) });
     }
     if ((wait = limited('finish', ip))) return tooMany(res, wait);
-    const b = await body(req), a = db.prepare('SELECT * FROM attempts WHERE token=? AND player=?').get(String(b.token || '').slice(0, 64), player);
+    const b = await body(req), a = db.prepare('SELECT * FROM attempts WHERE token=? AND player=?').get(String(b.token || '').slice(0, 64), who);
     if (!a) return json(res, { error: 'Attempt unavailable' }, 409);
-    if (a.status !== 'running') { const config = Race.challenge(a.day); return json(res, { attempt: current(player, config), leaderboard: board(player, config) }); }
+    if (a.status !== 'running') { const config = Race.challenge(a.day); return json(res, { attempt: current(who, config), leaderboard: board(who, config) }); }
     const config = ranked(a.day, parse(a.assists) || {}), rec = splitRecorder(config);
     let result;
     try {
@@ -188,9 +263,9 @@ async function handle(req, res) {
       return json(res, { error: 'Replay rejected' }, 400);
     }
     const valid = result.done && !result.invalid && !b.abandon && result.time !== null;
-    db.prepare("UPDATE attempts SET status=?,time=?,reason=?,splits=? WHERE token=? AND status='running'").run(valid ? 'finished' : 'dnf', valid ? result.time : null, valid ? '' : result.reason || 'Abandoned', valid ? JSON.stringify(rec.out) : null, a.token);
+    db.prepare("UPDATE attempts SET status=?,time=?,reason=?,splits=?,inputs=? WHERE token=? AND status='running'").run(valid ? 'finished' : 'dnf', valid ? result.time : null, valid ? '' : result.reason || 'Abandoned', valid ? JSON.stringify(rec.out) : null, valid ? JSON.stringify(b.inputs) : null, a.token);
     if (valid) broadcast(a.day);
-    return json(res, { attempt: current(player, config), leaderboard: board(player, config) });
+    return json(res, { attempt: current(who, config), leaderboard: board(who, config) });
   }
   return json(res, { error: 'Not found' }, 404);
 }
@@ -208,4 +283,5 @@ server.headersTimeout = 10000;
 server.requestTimeout = 15000;
 server.keepAliveTimeout = 5000;
 server.maxHeadersCount = 60;
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log('Hyzoom running on port ' + (process.env.PORT || 3000)));
+if (require.main !== module) module.exports = { verifyGoogle, Names };
+else server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => console.log('Hyzoom running on port ' + (process.env.PORT || 3000)));

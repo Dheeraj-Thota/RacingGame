@@ -84,7 +84,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 @media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr) 250px}}
 @media(max-width:700px){main{padding:10px}.layout{display:block}.racing main{max-width:100%}.hud{font-size:9px}#hudMain .big{font-size:22px}#map{font-size:6px}.logo{font-size:6px}}
 @media(pointer:coarse){.racing .touchbar{display:flex}}
-.box[hidden]{display:none}</style></head><body><main>
+.box[hidden]{display:none}#mName{background:transparent;border:0;border-bottom:1px dashed var(--muted);color:var(--ink);font:inherit;width:190px;padding:1px 2px;outline:none}#mName:focus{border-bottom-color:var(--accent)}#mAuth .linkish{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-decoration:underline}#ghostPick button{margin:0 6px 4px 0}.box[hidden],.mrow[hidden]{display:none}</style></head><body><main>
 <header><pre class="logo" aria-label="Hyzoom">#    # #   # #####  ####   ####  #     #
 #    #  # #     #  #    # #    # ##   ##
 ######   #     #   #    # #    # # # # #
@@ -99,6 +99,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 <div id="stage" tabindex="-1"><canvas aria-label="3D ASCII racing game" height="576" id="view" tabindex="0" width="1024"></canvas>
 <pre class="hud" id="hudMain"></pre><pre class="hud" id="map" aria-label="Live ASCII sector map"></pre><pre class="hud" id="hudCar"></pre><pre class="hud" id="hudPed"></pre>
 <div class="lobbyonly" id="menu"><div class="mtitle">GARAGE</div>
+<div class="mrow"><span class="mlab">NAME</span><input id="mName" maxlength="24" autocomplete="nickname" spellcheck="false" placeholder="your name"/></div><div class="mrow" id="mAuthRow" hidden><span class="mlab">RANKED</span><span id="mAuth"></span></div>
 <div class="mrow"><span class="mlab">CAR</span><button class="arrow" id="mCarPrev" aria-label="Previous car">&lt;</button><b id="mCar">FORMULA '86</b><button class="arrow" id="mCarNext" aria-label="Next car">&gt;</button></div>
 <div class="mrow"><span class="mlab">PAINT</span><button class="arrow" id="mPaintPrev" aria-label="Previous paint">&lt;</button><b id="mPaint">WHITE</b><button class="arrow" id="mPaintNext" aria-label="Next paint">&gt;</button></div>
 <div class="mrow"><span class="mlab">AIDS</span><span id="mAssists"></span></div><div class="mrow"><span class="mlab"></span><button class="tog on" id="mDrift">DRIFT SETUP</button><button class="tog" id="mDefault">DEFAULTS</button></div><div class="mnote" id="mNote"></div>
@@ -113,12 +114,15 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 <aside class="side">
 <div class="box" data-title="LEADERBOARD"><div class="muted" id="boardNote"></div><pre id="leader"></pre><div class="muted" id="resultDetail"></div><button hidden id="share">Copy result</button></div>
 <div class="box" data-title="YOU VS THE FIELD" hidden id="fieldBox"><pre id="field"></pre></div>
-<div class="box" data-title="CIRCUIT"><pre aria-label="ASCII circuit map" id="asciiRoute"></pre><div class="muted"><span class="acc">@</span> today · <span class="red">S</span> start/finish</div></div>
+<div class="box" data-title="GHOST"><div id="ghostPick"></div><div class="muted" id="ghostNote"></div></div>
+<div class="box" data-title="NORDSCHLEIFE"><pre aria-label="ASCII circuit map" id="asciiRoute"></pre><div class="muted"><span class="acc">@</span> today · <span class="red">S</span> start/finish · <span>:</span> lap</div><pre aria-label="Sector elevation profile" id="elev"></pre><div class="muted" id="routeDist"></div></div>
+<div class="box" data-title="DAILY SECTORS"><pre id="sectorList"></pre></div>
 </aside></div>
 <div class="rule" aria-hidden="true">+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+</div>
-<footer><span>Hyzoom keeps an anonymous cookie for your daily attempt and stores your time with the name you enter.</span></footer>
+<footer><span>Hyzoom stores your time with the name you enter. Ranked runs use Google sign-in; we keep an account ID only, never your email.</span></footer>
 </main><script>
 /*@@PHYSICS@@*/
 /*@@TRACK@@*/
+/*@@NAMES@@*/
 /*@@CLIENT@@*/
 </script></body></html>

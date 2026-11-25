@@ -3,9 +3,12 @@
 # Usage, on the VM:   sudo bash gcp-setup.sh your.domain.com
 # Point the domain's A record at the VM's external IP first, so HTTPS can be issued.
 # Re-running is safe: it updates the code and restarts the game.
+# Optional second argument: your Google OAuth client ID, which turns on sign-in for ranked runs:
+#   sudo bash gcp-setup.sh your.domain.com 1234-abc.apps.googleusercontent.com
 set -euo pipefail
 
 DOMAIN="${1:-}"
+GOOGLE_CLIENT_ID="${2:-}"
 REPO="${REPO:-https://github.com/Dheeraj-Thota/RacingGame.git}"
 BRANCH="${BRANCH:-main}"
 APP=/opt/hyzoom
@@ -50,6 +53,15 @@ else git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"; fi
 chown -R hyzoom:hyzoom "$APP"
 sudo -u hyzoom bash -c "cd $APP && npm test"
 
+echo "== Settings file (kept outside the code, readable by root only)"
+touch /etc/hyzoom.env && chmod 600 /etc/hyzoom.env
+if [[ -n "$GOOGLE_CLIENT_ID" ]]; then
+  [[ "$GOOGLE_CLIENT_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "That client ID does not look right."; exit 1; }
+  grep -v '^GOOGLE_CLIENT_ID=' /etc/hyzoom.env > /etc/hyzoom.env.new || true
+  echo "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" >> /etc/hyzoom.env.new && mv /etc/hyzoom.env.new /etc/hyzoom.env && chmod 600 /etc/hyzoom.env
+fi
+grep -q '^GOOGLE_CLIENT_ID=' /etc/hyzoom.env || echo "NOTE: sign-in is off (no Google client ID); ranked runs use an anonymous cookie."
+
 echo "== Service (restarts on crash and on reboot)"
 cat > /etc/systemd/system/hyzoom.service <<EOF
 [Unit]
@@ -65,6 +77,7 @@ Environment=DB_PATH=$DATA/hyzoom.sqlite
 Environment=COOKIE_SECURE=1
 Environment=TRUST_PROXY=1
 Environment=NODE_NO_WARNINGS=1
+EnvironmentFile=-/etc/hyzoom.env
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=3

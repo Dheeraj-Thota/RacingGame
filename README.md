@@ -166,4 +166,8 @@ Hyzoom is an independent prototype and is not affiliated with Porsche or the Nü
 
 The server holds no secrets and has no npm dependencies. It applies per-IP rate limits (all requests, leaderboard reads, ranked starts, replay submissions, live-stream connects), caps live streams at 4 per IP and 2,000 in total, sends a strict Content-Security-Policy (hash of the single inline script) plus nosniff, frame, referrer, opener and permissions headers, and HSTS when `COOKIE_SECURE=1`. Writes must be same-origin JSON under 512 KB; slow requests time out. SQL is parameterised; clients never see stack traces. Set `TRUST_PROXY=1` only when a local reverse proxy (as in `deploy/gcp-setup.sh`) appends `X-Forwarded-For`. `GET /healthz` reports liveness. The deploy script runs the game as an unprivileged, sandboxed systemd service behind Caddy (HTTPS), enables automatic security updates and nightly backups.
 
-Remaining limits: identity is an anonymous cookie, so a determined player can obtain extra ranked attempts from different networks; names are not profanity-filtered.
+Ranked identity: with `GOOGLE_CLIENT_ID` set, ranked runs require Google sign-in and each Google account gets one attempt per day (the server verifies Google's ID-token signature, issuer, audience and expiry itself and stores only the account ID). Without it, identity falls back to the anonymous cookie, which is fine for local development only. A person with several Google accounts can still enter more than once.
+
+Names are checked by `names.js` (shared by server and page) for slurs and profanity, including spaced-out, repeated-letter and look-alike spellings. No word filter is complete.
+
+Ghosts: after using today's ranked attempt, a player can race the validated replay of P1 or the driver just ahead, re-simulated in the browser.

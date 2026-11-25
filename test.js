@@ -117,3 +117,27 @@ ok('invalid replays rejected');
   for (let i = 0; i < 240 && !a.done; i++) R.step(a, 1, c, road); assert(!a.reverse && a.vx > 1);
   ok('reverse gear engages from standstill and releases'); }
 console.log('All tests passed');
+
+// Display names: shared filter, embedded in the page
+{ const N = require('./names.js'), fs = require('node:fs');
+  for (const n of ['Max Verstappen', 'Nigel', 'Cassidy', 'Torpedo', 'Raccoon', 'Analyst', 'Speedy']) assert.ok(N.check(n).ok, 'should allow ' + n);
+  for (const n of ['f.u.c.k', 'fuuuck', '5h1t', 'N1gg3r', 'Ass', 'pedo', 'hitler88', '  ', '__']) assert.ok(!N.check(n).ok, 'should reject ' + n);
+  assert.ok(fs.readFileSync(__dirname + '/index.html', 'utf8').includes(fs.readFileSync(__dirname + '/names.js', 'utf8').trim()), 'index.html names copy is stale: run node tools/build.js');
+  ok('name filter allows ordinary names, rejects slurs and disguised profanity'); }
+
+// Google sign-in tokens: signature, issuer, audience and expiry are all enforced
+{ const crypto = require('node:crypto'), os = require('node:os'), path = require('node:path');
+  process.env.DB_PATH = path.join(os.tmpdir(), 'hyzoom-test-' + process.pid + '.sqlite'); process.env.GOOGLE_CLIENT_ID = 'test-client';
+  const { verifyGoogle } = require('./server.js'), { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1' }, b64 = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const mk = (claims, key = privateKey) => { const h = b64({ alg: 'RS256', kid: 'k1' }), p = b64(claims); return h + '.' + p + '.' + crypto.sign('RSA-SHA256', Buffer.from(h + '.' + p), key).toString('base64url'); };
+  const now = Math.floor(Date.now() / 1000), good = { iss: 'https://accounts.google.com', aud: 'test-client', sub: '42', iat: now, exp: now + 600 };
+  const other = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
+  (async () => {
+    assert.equal(await verifyGoogle(mk(good), [jwk]), '42');
+    for (const bad of [mk({ ...good, aud: 'x' }), mk({ ...good, exp: now - 1 }), mk({ ...good, iss: 'evil' }), mk(good, other), 'a.b.c'])
+      await assert.rejects(verifyGoogle(bad, [jwk]));
+    ok('sign-in tokens: valid accepted; forged, expired, wrong audience/issuer rejected');
+    for (const f of ['', '-wal', '-shm']) try { fs2.unlinkSync(process.env.DB_PATH + f); } catch {}
+  })().catch(e => { console.error(e); process.exit(1); });
+  var fs2 = require('node:fs'); }
