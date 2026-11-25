@@ -725,12 +725,12 @@ const lineAt=q=>{const f=wrap(q,L)/step,i=Math.floor(f),t=f-i;return lineOff[i%N
 // Tyre smoke: puffs from the rear tyres while they spin or slide hard (burnouts, drifts, lock-ups).
 const smoke=[];let lastSmokeT=0;
 function updateSmoke(){const t=performance.now(),dt=clamp((t-lastSmokeT)/1000,0,.05);lastSmokeT=t;
- for(const q of smoke){q.age+=dt;q.y+=dt*(.6+q.age*.4);q.r+=dt*(1.2+q.age);q.x+=q.vx*dt;q.z+=q.vz*dt;}while(smoke.length&&smoke[0].age>2.2)smoke.shift();
+ for(const q of smoke){q.age+=dt;q.y+=dt*(.6+q.age*.4);q.r=Math.min(1.1,q.r+dt*.9);q.x+=q.vx*dt;q.z+=q.vz*dt;}while(smoke.length&&smoke[0].age>1.4)smoke.shift();
  if(!active||paused)return;const K=Race.spec(raceConfig.car),p=at(s),yaw=p.yaw+heading,sy=Math.sin(yaw),cy=Math.cos(yaw),cx=p.x+p.rx*d,cz=p.z+p.rz*d,gy=ground(p,d);
  const spin=Math.max((carState.w[2]+carState.w[3])/2*K.tyreR.radius-Math.max(carState.vx,0),0),slide=Math.max(carState.slip[2],carState.slip[3]),amt=carState.burnout?clamp(spin/8,0,1):clamp((slide-1.7)/1.5,0,1)*clamp(v/6,0,1);
- if(amt<.05||smoke.length>160)return;const rz=-K.wheelbase*K.frontWeight;
+ if(amt<.05||smoke.length>70||(carState.contact&&v<4))return;const rz=-K.wheelbase*K.frontWeight;
  for(const sd of [-1,1])if(Math.random()<amt){const lx=sd*K.trackR/2,x=cx+lx*cy+rz*sy,z=cz-lx*sy+rz*cy;smoke.push({x,y:gy+.25,z,r:.35,age:0,vx:(Math.random()-.5)*1.2-sy*Math.min(v,8)*.2,vz:(Math.random()-.5)*1.2-cy*Math.min(v,8)*.2});}}
-function drawSmoke(){for(const q of smoke){const f=1-q.age/2.2,c=[.78*f+.2,.79*f+.2,.82*f+.21],r=q.r;
+function drawSmoke(){for(const q of smoke){const f=1-q.age/1.4,c=[.78*f+.2,.79*f+.2,.82*f+.21],r=q.r;
  quad([q.x-r,q.y-r*.6,q.z],[q.x+r,q.y-r*.6,q.z],[q.x+r,q.y+r*.6,q.z],[q.x-r,q.y+r*.6,q.z],c,true);quad([q.x,q.y-r*.6,q.z-r],[q.x,q.y-r*.6,q.z+r],[q.x,q.y+r*.6,q.z+r],[q.x,q.y+r*.6,q.z-r],c,true);}}
 function drivingLine(){const s0=Math.ceil((s+4)/10)*10;for(let q=s0;q<s+300;q+=10){const x=q-s,q1=q,q2=q+7,p1=at(q1),p2=at(q2),w1=.55*clamp((x-4)/12,0,1),w2=.55*clamp((x+7)/12,0,1),o1=lineAt(q1),o2=lineAt(q2),c=LINE_COLORS[curLineCol()[Math.floor(wrap(q1,L)/step)%N]];
  quad(wp(p1,o1-w1,.07),wp(p2,o2-w2,.07),wp(p2,o2+w2,.07),wp(p1,o1+w1,.07),c,true);}}
@@ -744,8 +744,8 @@ function render(){let p=at(s),yaw=p.yaw+heading,sy=Math.sin(yaw),cy=Math.cos(yaw
 // so the road ahead stays in view through bends and slides.
  const tNow=performance.now(),cdt=clamp((tNow-lastCamT)/1000,0,.1);lastCamT=tNow;
  const tgt=at(s+clamp(v*.55,10,40)),roadYaw=Math.atan2(tgt.x+tgt.rx*d*.5-cx,tgt.z+tgt.rz*d*.5-cz);
- const travel=(carState.vx||0)>1?yaw+clamp(Math.atan2(carState.vy||0,carState.vx),-.6,.6):yaw,camTarget=travel+ang(roadYaw-travel)*cam.blend;
- const dy=ang(camTarget-camYaw);camYaw=Math.abs(dy)>1.2||cdt===0?camTarget:camYaw+dy*Math.min(1,cdt*cam.rate);camFocal=cam.focal*(1-(active?.20*clamp((v-15)/70,0,1):0)); // field of view widens with speed
+ const travel=(carState.vx||0)>1?yaw+clamp(Math.atan2(carState.vy||0,carState.vx),-.6,.6):yaw,camTarget=travel+ang(roadYaw-travel)*cam.blend*clamp((v-4)/14,0,1)*(carState.contact?.3:1);
+ const dy=ang(camTarget-camYaw);camYaw=cdt===0?camTarget:camYaw+dy*Math.min(1,cdt*cam.rate*(Math.abs(dy)>1.2?3:1));{const fTarget=cam.focal*(1-(active?.20*clamp((v-15)/70,0,1):0));camFocal=cdt===0?fTarget:camFocal+(fTarget-camFocal)*Math.min(1,cdt*1.5);} // field of view widens with speed, eased so a crash does not jolt it
  if(!active){camYaw=yaw+tNow*.00028+.6;} // lobby showroom: slow orbit around the car
  const ks=Math.sin(camYaw),kc=Math.cos(camYaw);
  camLag+=(clamp(-(carState.ax||0)*.045,-.35,.55)-camLag)*Math.min(1,cdt*4); // slight pull-back under braking, GT-style
@@ -767,7 +767,7 @@ const candidates=' .,:;-=+*oxX#%@';
 function drawGlyph(c){glyphCtx.clearRect(0,0,aw,ah);glyphCtx.font='bold 24px monospace';glyphCtx.textBaseline='middle';glyphCtx.textAlign='center';glyphCtx.fillStyle='#fff';glyphCtx.fillText(c,aw/2,ah/2+.2);return glyphCtx.getImageData(0,0,aw,ah).data;}
 glyphCanvas.width=aw;glyphCanvas.height=ah;const sorted=[...candidates].map(c=>({c,coverage:drawGlyph(c).filter((_,i)=>i%4===3).reduce((a,b)=>a+b,0)})).sort((a,b)=>a.coverage-b.coverage);const ramp=sorted.map(o=>o.c).join('');glyphCanvas.width=aw*ramp.length;glyphCanvas.height=ah;glyphCtx.font='bold 24px monospace';glyphCtx.textBaseline='middle';glyphCtx.textAlign='center';glyphCtx.fillStyle='#fff';for(let i=0;i<ramp.length;i++)glyphCtx.fillText(ramp[i],i*aw+aw/2,ah/2+.2);
 const SS=2; // scene rendered at 2x the glyph grid, averaged per cell: stable, less shimmer
-const levels=[[320,120],[480,180],[640,240],[800,300],[960,360]],modeNames=['color','raw','pure','mono','white'];let skyProgram,skyLoc;let level=2,autoLevel=2,gridW=0,gridH=0,post,postLoc={},quadBuffer,sceneTex,depthRB,fbo,atlas;let fps=0,frameCount=0,measureAt=performance.now(),lastAdjust=measureAt,slowWindows=0,fastWindows=0,renderMs=0;
+const levels=[[320,120],[480,180],[640,240],[800,300],[960,360]],modeNames=['color','raw','pure','mono','white'];let skyProgram,skyLoc;let level=2,autoLevel=2,gridW=0,gridH=0,post,postLoc={},quadBuffer,sceneTex,depthRB,fbo,atlas;let fps=0,frameCount=0,measureAt=performance.now(),lastAdjust=measureAt,slowWindows=0,fastWindows=0,renderMs=0,windowHitch=false;
 function setGrid(next){level=next;let [w,h]=levels[next];if(w===gridW&&h===gridH)return;gridW=w;gridH=h;gl.bindTexture(gl.TEXTURE_2D,sceneTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w*SS,h*SS,0,gl.RGBA,gl.UNSIGNED_BYTE,null);gl.bindRenderbuffer(gl.RENDERBUFFER,depthRB);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_STENCIL,w*SS,h*SS);gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('ASCII framebuffer incomplete');gl.bindFramebuffer(gl.FRAMEBUFFER,null);}
 if(gl){try{sceneTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,sceneTex);for(let [key,val] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,key,val);depthRB=gl.createRenderbuffer();fbo=gl.createFramebuffer();
  // The depth renderbuffer must be bound and given storage before it can be attached; otherwise WebGL rejects the
@@ -1085,7 +1085,7 @@ if(storage.get('redline-ghost')===false){$('ghostSel').value='0';$('ghostSel').o
 const aliases={arrowup:'w',arrowdown:'s',arrowleft:'a',arrowright:'d'};window.addEventListener('keydown',e=>{if(!active&&e.target instanceof Element&&e.target.matches('input,select,textarea'))return;let k=aliases[e.key.toLowerCase()]||e.key.toLowerCase();if('wasd'.includes(k)&&k.length===1&&active){e.preventDefault();keys[k]=true;}if(k==='r'&&active&&!ranked&&!e.repeat){launch(raceConfig,false);}if(k==='p'&&active&&!ranked&&!e.repeat){setPause(!paused);}if(!e.repeat&&!(e.target instanceof Element&&e.target.matches('input,textarea'))){if(k==='c')$('cameraBtn').click();if(active&&k===' '){keys.hb=true;e.preventDefault();}if(active&&(k==='e'||k==='q')){pendingShift=k==='e'?1:-1;e.preventDefault();}if(k==='m')setSound(!soundOn);if(k==='l')$('lineBtn').click();if(k==='g')$('ghostBtn').click();}});
 window.addEventListener('keyup',e=>{const k=aliases[e.key.toLowerCase()]||e.key.toLowerCase();keys[k]=false;if(k===' ')keys.hb=false;});window.addEventListener('blur',()=>{keys={};if(active&&!ranked)setPause(true);});document.addEventListener('visibilitychange',()=>{if(document.hidden&&active){keys={};if(!ranked)setPause(true);}});
 document.querySelectorAll('[data-key]').forEach(b=>{let k=b.dataset.key;b.onpointerdown=e=>{if(!active)return;e.preventDefault();b.setPointerCapture(e.pointerId);keys[k]=true;};b.onpointerup=b.onpointercancel=b.onlostpointercapture=()=>keys[k]=false;});
-function setPause(value){paused=value;keys={};accumulator=0;$('pause').textContent=paused?'Resume':'Pause';banner(paused?'PAUSED':'',ranked?'':'[P] OR [ RESUME ] TO CONTINUE · [R] RESTART');if(!paused){goAt=performance.now()+700;$('stage').focus({preventScroll:true});}}
+function setPause(value){paused=value;keys={};accumulator=0;$('pause').textContent=paused?'Resume':'Pause';banner(paused?'PAUSED':'',ranked?'':'[P] OR [ RESUME ] TO CONTINUE · [R] RESTART');if(!paused){goAt=performance.now()+700;measureAt=goAt;frameCount=0;slowWindows=0;fastWindows=0;windowHitch=false;lastCamT=performance.now();$('stage').focus({preventScroll:true});}}
 $('pause').onclick=()=>{if(active&&!ranked)setPause(!paused);};$('full').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else if($('stage').requestFullscreen)await $('stage').requestFullscreen();else document.body.classList.toggle('wide');}catch{document.body.classList.toggle('wide');}if(active)$('stage').focus({preventScroll:true});};
 // Block-letter countdown in the same 5-row font as the logo
 const FONT={'0':['#####','##  ##','##  ##','##  ##','#####'],'1':['  ##  ',' ###  ','  ##  ','  ##  ',' #### '],'2':['##### ','    ##',' #### ','##    ','######'],'3':['##### ','    ##','  ### ','    ##','##### '],G:['####','#   ','# ##','#  #','####'],O:['####','#  #','#  #','#  #','####'],P:['### ','#  #','### ','#   ','#   '],A:[' ## ','#  #','####','#  #','#  #'],U:['#  #','#  #','#  #','#  #','####'],S:['####','#   ','####','   #','####'],E:['####','#   ','### ','#   ','####'],D:['### ','#  #','#  #','#  #','### '],' ':['  ','  ','  ','  ','  ']};
@@ -1095,7 +1095,7 @@ let bannerKey='';function banner(word,caption){const el=$('raceCountdown'),key=w
 function bigText(t){return [0,1,2,3,4].map(r=>[...t].map(c=>(FONT[c]||FONT[' '])[r]).join('  ')).join('\n');}
 function tickClock(){let now=new Date(),end=Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1),sec=Math.max(0,Math.floor((end-now)/1000));$('countdown').textContent=[Math.floor(sec/3600),Math.floor(sec/60)%60,sec%60].map(x=>String(x).padStart(2,'0')).join(':');}tickClock();setInterval(tickClock,1000);
 let prev=performance.now(),lastHud=0,lastState='';
-function loop(now){requestAnimationFrame(loop);let dt=Math.max(0,(now-prev)/1000);prev=now;try{
+function loop(now){requestAnimationFrame(loop);let dt=Math.max(0,(now-prev)/1000);prev=now;if(dt>.2)windowHitch=true;try{
  if(active&&!paused&&now<goAt){banner(String(Math.max(1,Math.ceil((goAt-now)/1000))),paused?'':(ranked?'RANKED RUN · ONE ATTEMPT':'GET READY'));}
  else if(active&&!paused){if(now<goAt+650)banner('GO','');else banner('');
   if(dt>2&&ranked){carState.reason='Run interrupted by browser suspension';finish(true);accumulator=0;}
@@ -1103,7 +1103,10 @@ function loop(now){requestAnimationFrame(loop);let dt=Math.max(0,(now-prev)/1000
  let state=[active?0:Math.floor(now/50),s,d,heading,cameraMode,modelRevision,$('mode').value,$('quality').value,active,paused,autoLevel].join('|');if(state!==lastState||active&&!paused){let t=performance.now();try{render();}catch(e){if(gl){useCPU(e);cachedK=-1;autoLevel=1;lastState='';return;}throw e;}renderMs=renderMs*.9+(performance.now()-t)*.1;lastState=state;frameCount++;}
  updateAudio();if(now-lastHud>=66){if(active){drawMap();hud();}lastHud=now;}
  if(now-measureAt>=1000){fps=frameCount*1000/(now-measureAt);frameCount=0;measureAt=now;let moving=active&&!paused;$('perf').textContent=(moving?Math.round(fps)+' FPS':'Ready')+' · '+(gl?gridW+'x'+gridH+' GPU':W+'x'+H+' CPU');
-  if(moving&&now>goAt+1200&&$('quality').value==='auto'){slowWindows=fps<55?slowWindows+1:0;fastWindows=fps>=58&&renderMs<9?fastWindows+1:0;if(slowWindows>=1&&autoLevel>0){autoLevel--;slowWindows=0;fastWindows=0;}else if(fastWindows>=6&&autoLevel<4){autoLevel++;fastWindows=0;slowWindows=0;}}}
+  // Adaptive detail: a window containing a hitch (crash, tab switch, pause) is ignored; two slow seconds in a row drop one step
+  // (not below the second step unless it is really struggling); four smooth seconds climb back up.
+  if(moving&&now>goAt+1200&&$('quality').value==='auto'&&!windowHitch){slowWindows=fps<52?slowWindows+1:0;fastWindows=fps>=58&&renderMs<14?fastWindows+1:0;
+   if(slowWindows>=2&&autoLevel>(fps<30?0:1)){autoLevel--;slowWindows=0;fastWindows=0;}else if(fastWindows>=4&&autoLevel<4){autoLevel++;fastWindows=0;slowWindows=0;}}windowHitch=false;}
 }catch(e){console.error('Race frame error',e);if(active){if(!ranked)setPause(true);$('status')&&($('status').textContent='Graphics error - lower detail');}else $('perf').textContent='Graphics error';}}
 init();
 setInterval(async()=>{if(active||finishBusy||startPending||!ready)return;if(online){try{let a=await api('daily');if(active||startPending||finishBusy)return;if(a.challenge.id!==challenge.id){challenge=a.challenge;raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;attempt=a.attempt;leaderboard=a.leaderboard;updateLobby();}else{attempt=a.attempt;leaderboard=a.leaderboard;drawBoard();}}catch{}}
