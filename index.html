@@ -84,7 +84,7 @@ footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-s
 @media(max-width:900px){.layout{grid-template-columns:minmax(0,1fr) 250px}}
 @media(max-width:700px){main{padding:10px}.layout{display:block}.racing main{max-width:100%}.hud{font-size:9px}#hudMain .big{font-size:22px}#map{font-size:6px}.logo{font-size:6px}}
 @media(pointer:coarse){.racing .touchbar{display:flex}}
-.box[hidden]{display:none}#mName{background:transparent;border:0;border-bottom:1px dashed var(--muted);color:var(--ink);font:inherit;width:190px;padding:1px 2px;outline:none}#mName:focus{border-bottom-color:var(--accent)}#mAuth .linkish{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-decoration:underline}#ghostPick button{margin:0 6px 4px 0}.box[hidden],.mrow[hidden]{display:none}</style></head><body><main>
+.box[hidden]{display:none}#mName{background:transparent;border:0;border-bottom:1px dashed var(--muted);color:var(--ink);font:inherit;width:190px;padding:1px 2px;outline:none}#mName:focus{border-bottom-color:var(--accent)}#mAuthRow{min-height:44px;align-items:center}#mAuth{display:inline-flex;align-items:center;gap:10px;min-height:40px}#mAuth iframe{color-scheme:light}#gsiBtn{display:inline-block;line-height:0}#mAuth .linkish{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0;text-decoration:underline}#ghostPick button{margin:0 6px 4px 0}.box[hidden],.mrow[hidden]{display:none}</style></head><body><main>
 <header><pre class="logo" aria-label="Hyzoom">#    # #   # #####  ####   ####  #     #
 #    #  # #     #  #    # #    # ##   ##
 ######   #     #   #    # #    # # # # #
@@ -850,7 +850,7 @@ function drawMap(){let cols=26,rows=11,grid=Array.from({length:rows},()=>Array(c
 
 // Lobby panels ----------------------------------------------------
 function drawBoard(){const lb=leaderboard,you=lb?.you,lines=[];
- $('boardNote').innerHTML=online?(lb?.total?`<span class="acc">●</span> LIVE · ${lb.total} ${lb.total===1?'driver':'drivers'} today`:'<span class="acc">●</span> LIVE · no finishers yet'):'Offline · local times only';
+ $('boardNote').innerHTML=online?(lb?.total?`LIVE · ${lb.total} ${lb.total===1?'driver':'drivers'} today`:'LIVE · no finishers yet'):'Offline · local times only';
  lines.push(' POS  DRIVER            TIME      GAP');
  if(!(lb?.rows?.length))lines.push(esc(online?'      be the first to set a time':'      run the server to race globally'));
  const p1=lb?.rows?.[0]?.time;for(const r of lb?.rows||[]){const row=`${padS(r.rank,4)}  ${padE(r.name,16)}  ${time(r.time)}  ${r.rank===1?'':'+'+(r.time-p1).toFixed(3)}`;lines.push(r.you?span('you',row):esc(row));}
@@ -887,14 +887,14 @@ function resultCard(st,c){if(!st)return '';const W=34,row=(k,val)=>'| '+padE(k,1
 function updateLobby(){routeArt();sectorList();
  $('stageMode').textContent='DAILY / '+String(challenge.number).padStart(2,'0');$('dailyLabel').textContent='Daily time trial · '+challenge.day;$('sectorTitle').textContent=challenge.name;
  $('sectorLabel').textContent=`Sector ${String(challenge.number).padStart(2,'0')} of ${Race.sectors.length} · ${(challenge.length/1000).toFixed(2)} km · rolling start ${Math.round(challenge.rolling*3.6)} km/h · dry · daily car ${challenge.carName}`;
- $('netLabel').textContent=online?'[ ONLINE ]':'[ OFFLINE / LOCAL ]';document.body.classList.remove('racing');$('overlay').hidden=false;
+ $('netLabel').textContent='';document.body.classList.remove('racing');$('overlay').hidden=false;
  $('overlayTag').textContent=attempt?'Daily challenge complete':'Daily challenge';$('overlayTitle').textContent=attempt?(attempt.status==='finished'?time(attempt.time):'Attempt used'):'Today’s race';$('overlayDesc').textContent=attempt?'Your daily score is locked. Practice is unlimited.':'One ranked attempt. Fastest time wins. Practice runs never count.';
  $('resultCard').textContent=lastRun?resultCard(lastRun.state,lastRun.config)+(lastRun.newBest?'\nNEW BEST'+(lastRun.prevBest?` (${(lastRun.state.time-lastRun.prevBest).toFixed(3)} s)`:'')+' · saved as your ghost':'')+traceChart(lastRun.trace,lastRun.ghostTrace):'';$('start').hidden=!!attempt;$('start').disabled=!ready;$('practice').disabled=!ready;$('lap').disabled=!ready;$('mStart').hidden=!!attempt;$('mStart').disabled=!ready;$('mPractice').disabled=!ready;$('mLap').disabled=!ready;
- $('perf').textContent='Ready · '+(gl?'GPU':'CPU');$('overlayBox').style.display=lastRun||attempt?'':'none';$('reset').disabled=true;$('pause').hidden=true;drawBoard();}
+ $('perf').textContent='Ready · '+(gl?'GPU':'CPU');$('overlayBox').style.display=lastRun||attempt?'':'none';try{if(auth.required&&auth.signedIn)drawAuth();}catch{}$('reset').disabled=true;$('pause').hidden=true;drawBoard();}
 // Ranked runs need a Google account when the server has sign-in turned on (one ranked attempt per account per day).
 let auth={required:false,signedIn:true,clientId:null},gsiLoaded=false;
 function drawAuth(){const row=$('mAuthRow'),box=$('mAuth');row.hidden=!(online&&auth.required);if(row.hidden)return;
- if(auth.signedIn){box.innerHTML='<span class="acc">signed in</span> · <button class="linkish" id="signOut">sign out</button>';$('signOut').onclick=async()=>{try{await api('auth/logout',{});}catch{}refreshDaily();};return;}
+ if(auth.signedIn){const done=attempt&&attempt.status!=='running';box.innerHTML=`<span class="acc">signed in</span>${done?' · today\'s run done':''} <button class="tog" id="signOut">SIGN OUT</button>`;$('signOut').onclick=async()=>{try{await api('auth/logout',{});}catch{}refreshDaily();};return;}
  box.innerHTML='<span id="gsiBtn"></span>';if(!auth.clientId)return;
  const render=()=>{try{google.accounts.id.initialize({client_id:auth.clientId,callback:async r=>{try{await api('auth/google',{credential:r.credential});await refreshDaily();$('mNote').textContent='Signed in. Your ranked attempt is tied to your Google account.';}catch(e){$('mNote').textContent=e.message;}}});google.accounts.id.renderButton($('gsiBtn'),{theme:'filled_black',size:'small',text:'signin_with',shape:'rectangular'});}catch{box.textContent='Sign-in unavailable';}};
  if(gsiLoaded&&window.google)return render();const sc=document.createElement('script');sc.src='https://accounts.google.com/gsi/client';sc.async=true;sc.onload=()=>{gsiLoaded=true;render();};sc.onerror=()=>{box.textContent='Sign-in unavailable';};document.head.append(sc);}
@@ -975,9 +975,11 @@ paintIndex=clamp(storage.get('redline-paint')||0,0,PAINTS.length-1);const showPa
 carBody=storage.get('redline-body')==='kestrel'?'kestrel':'f1';const showBody=()=>{drawAssists&&$('mAssists')&&drawAssists();$('bodyBtn').querySelector('b').textContent=BODIES[carBody];$('mCar').textContent=BODIES[carBody];$('mNote').textContent=carBody==='f1'?'Daily runs use this car':'Practice car · daily runs use the Formula \'86';};showBody();$('bodyBtn').onclick=()=>{carBody=carBody==='f1'?'kestrel':'f1';storage.set('redline-body',carBody);showBody();specSheet();lastState='';};
 assistPrefs=storage.get('redline-assists-'+Race.VERSION)||{};
 function drawAssists(){const as=getAssists(carBody),box=$('mAssists');box.replaceChildren();for(const k of Race.ASSIST_KEYS){const b=document.createElement('button');b.className='tog'+(as[k]?' on':'');b.textContent=Race.ASSIST_NAMES[k]+(as[k]?' ON':' OFF');b.title={abs:'Anti-lock brakes',tc:'Traction control',stab:'Stability control',counter:'Countersteer aid',steer:'Keyboard steering aid',auto:'Automatic gears (off: E/Q or pad bumpers to shift)'}[k];
- b.onclick=()=>{const cur=getAssists(carBody);assistPrefs[carBody]={...cur,[k]:!cur[k]};storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};box.append(b);}}
+ b.onclick=()=>{const cur=getAssists(carBody);assistPrefs[carBody]={...cur,[k]:!cur[k]};storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};box.append(b);}
+ const def=Race.assistsFor(carBody,{}),isDefault=Race.ASSIST_KEYS.every(k=>!!as[k]===!!def[k]),isDrift=!as.tc&&!as.stab;
+ $('mDrift').className='tog'+(isDrift?' on':'');$('mDrift').textContent=isDrift?'DRIFT SETUP ON':'DRIFT SETUP';$('mDefault').className='tog'+(isDefault?' on':'');}
 drawAssists();
-$('mDrift').onclick=()=>{assistPrefs[carBody]={...getAssists(carBody),tc:false,stab:false};storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};$('mDefault').onclick=()=>{delete assistPrefs[carBody];storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};
+$('mDrift').onclick=()=>{const cur=getAssists(carBody),def=Race.assistsFor(carBody,{}),on=!cur.tc&&!cur.stab;assistPrefs[carBody]=on?{...cur,tc:def.tc,stab:def.stab}:{...cur,tc:false,stab:false};storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};$('mDefault').onclick=()=>{delete assistPrefs[carBody];storage.set('redline-assists-'+Race.VERSION,assistPrefs);drawAssists();};
 const stepPaint=d=>{paintIndex=(paintIndex+d+PAINTS.length)%PAINTS.length;storage.set('redline-paint',paintIndex);showPaint();lastState='';};
 $('mCarPrev').onclick=$('mCarNext').onclick=()=>$('bodyBtn').click();$('mPaintPrev').onclick=()=>stepPaint(-1);$('mPaintNext').onclick=()=>stepPaint(1);
 $('mPractice').onclick=()=>$('practice').click();$('mLap').onclick=()=>$('lap').click();$('mStart').onclick=()=>$('start').click();
