@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Redline: one-time setup on a fresh Debian 12 VM (e.g. Google Cloud e2-micro).
+# Hyzoom: one-time setup on a fresh Debian 12 VM (e.g. Google Cloud e2-micro).
 # Usage, on the VM:   sudo bash gcp-setup.sh your.domain.com
 # Point the domain's A record at the VM's external IP first, so HTTPS can be issued.
 # Re-running is safe: it updates the code and restarts the game.
@@ -8,8 +8,8 @@ set -euo pipefail
 DOMAIN="${1:-}"
 REPO="${REPO:-https://github.com/Dheeraj-Thota/RacingGame.git}"
 BRANCH="${BRANCH:-main}"
-APP=/opt/redline
-DATA=/var/lib/redline
+APP=/opt/hyzoom
+DATA=/var/lib/hyzoom
 
 if [[ $EUID -ne 0 ]]; then echo "Run with sudo."; exit 1; fi
 if [[ -z "$DOMAIN" ]]; then echo "Usage: sudo bash gcp-setup.sh your.domain.com"; exit 1; fi
@@ -39,25 +39,25 @@ if ! swapon --show | grep -q /swapfile; then
 fi
 
 echo "== App user, code and data folder"
-id redline >/dev/null 2>&1 || useradd --system --home "$APP" --shell /usr/sbin/nologin redline
-mkdir -p "$DATA"; chown redline:redline "$DATA"; chmod 700 "$DATA"
+id hyzoom >/dev/null 2>&1 || useradd --system --home "$APP" --shell /usr/sbin/nologin hyzoom
+mkdir -p "$DATA"; chown hyzoom:hyzoom "$DATA"; chmod 700 "$DATA"
 if [[ -d "$APP/.git" ]]; then git -C "$APP" fetch --depth 1 origin "$BRANCH" && git -C "$APP" reset --hard "origin/$BRANCH"
 else git clone --depth 1 --branch "$BRANCH" "$REPO" "$APP"; fi
-chown -R redline:redline "$APP"
-sudo -u redline bash -c "cd $APP && npm test"
+chown -R hyzoom:hyzoom "$APP"
+sudo -u hyzoom bash -c "cd $APP && npm test"
 
 echo "== Service (restarts on crash and on reboot)"
-cat > /etc/systemd/system/redline.service <<EOF
+cat > /etc/systemd/system/hyzoom.service <<EOF
 [Unit]
-Description=Redline daily racer
+Description=Hyzoom daily racer
 After=network.target
 
 [Service]
-User=redline
+User=hyzoom
 WorkingDirectory=$APP
 Environment=HOST=127.0.0.1
 Environment=PORT=3000
-Environment=DB_PATH=$DATA/redline.sqlite
+Environment=DB_PATH=$DATA/hyzoom.sqlite
 Environment=COOKIE_SECURE=1
 Environment=NODE_NO_WARNINGS=1
 ExecStart=/usr/bin/node server.js
@@ -73,8 +73,8 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable redline
-systemctl restart redline
+systemctl enable hyzoom
+systemctl restart hyzoom
 
 echo "== HTTPS for $DOMAIN"
 cat > /etc/caddy/Caddyfile <<EOF
@@ -86,19 +86,19 @@ EOF
 systemctl reload caddy || systemctl restart caddy
 
 echo "== Nightly database backup (keeps 14 days)"
-cat > /etc/cron.daily/redline-backup <<EOF
+cat > /etc/cron.daily/hyzoom-backup <<EOF
 #!/bin/sh
 mkdir -p $DATA/backups
-out=$DATA/backups/redline-\$(date +%F).sqlite
+out=$DATA/backups/hyzoom-\$(date +%F).sqlite
 rm -f "\$out"
-[ -f $DATA/redline.sqlite ] && NODE_NO_WARNINGS=1 node -e "new (require('node:sqlite').DatabaseSync)(process.argv[1]).exec(\\"VACUUM INTO '\$out'\\")" $DATA/redline.sqlite
-find $DATA/backups -name 'redline-*.sqlite' -mtime +14 -delete
-chown -R redline:redline $DATA/backups
+[ -f $DATA/hyzoom.sqlite ] && NODE_NO_WARNINGS=1 node -e "new (require('node:sqlite').DatabaseSync)(process.argv[1]).exec(\\"VACUUM INTO '\$out'\\")" $DATA/hyzoom.sqlite
+find $DATA/backups -name 'hyzoom-*.sqlite' -mtime +14 -delete
+chown -R hyzoom:hyzoom $DATA/backups
 EOF
-chmod 755 /etc/cron.daily/redline-backup
+chmod 755 /etc/cron.daily/hyzoom-backup
 
 sleep 2
-systemctl --no-pager --lines=5 status redline || true
+systemctl --no-pager --lines=5 status hyzoom || true
 echo
 echo "Done. Open https://$DOMAIN  (first HTTPS certificate can take a minute)."
 echo "Update later with:  sudo bash $APP/deploy/gcp-setup.sh $DOMAIN"

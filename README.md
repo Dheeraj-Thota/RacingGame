@@ -1,8 +1,8 @@
-# REDLINE
+# HYZOOM
 
 **One sector. One attempt. Every day.**
 
-Redline is a browser-based, daily time-trial racing game set on a reconstruction of the Nürburgring Nordschleife. Every player receives the same car, track sector and conditions. The first ranked attempt is final; finishing times determine the daily standings.
+Hyzoom (formerly Redline) is a browser-based, daily time-trial racing game set on a reconstruction of the Nürburgring Nordschleife. Every player receives the same car, track sector and conditions. The first ranked attempt is final; finishing times determine the daily standings.
 
 The world is rendered in real-time 3D using colored ASCII glyphs rather than conventional textured pixels. The goal is to combine the accessibility of a daily web game with the depth and precision of competitive racing.
 
@@ -156,8 +156,8 @@ The renderer draws a detailed scene for roughly the next 650 m and a low-detail 
 
 ## Asset fidelity and licensing
 
-The bundled car is the **Kestrel RS**, an original Redline design in the spirit of a rear-engined track car, not a replica of any production model. Its wheelbase, tracks and tyre sizes match the simulated car, its wheels spin and steer from the simulation, and it comes in six paints with racing stripes. Performance is modelled on published 992 GT3 RS figures; the body is not a Porsche asset. The main car, **Formula '86**, is an original generic 1980s-style single-seater; choose cars and paint in the garage menu shown over the game view before a run. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
+The bundled car is the **Kestrel RS**, an original Hyzoom design in the spirit of a rear-engined track car, not a replica of any production model. Its wheelbase, tracks and tyre sizes match the simulated car, its wheels spin and steer from the simulation, and it comes in six paints with racing stripes. Performance is modelled on published 992 GT3 RS figures; the body is not a Porsche asset. The main car, **Formula '86**, is an original generic 1980s-style single-seater; choose cars and paint in the garage menu shown over the game view before a run. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
 
 The circuit is built by `tools/build-track.js` from the route, corner and kerb files in [JJ Ying's Nürburgring Map](https://github.com/JJYing/Nurburgring-Map) (MIT, see [TRACK-LICENSE.txt](TRACK-LICENSE.txt)). The route is GPS-derived (VeloViewer segment 5539685): the generated lap is 20,822.6 m (official 20,832 m), runs clockwise and spans 334–623 m elevation. It is smoothed, its 184 m start seam is interpolated, and a source spike of ~30% grade after Breidscheid is redistributed to an 18% maximum. Width, banking (including the Karussell), kerbs, corner ranges and scenery are approximate, not laser-scanned. Rights to the underlying route data should be confirmed before commercial use. No externally downloaded Porsche mesh is bundled.
 
-Redline is an independent prototype and is not affiliated with Porsche or the Nürburgring. Verify all relevant commercial asset, branding and track rights before public launch. No open-source license has been selected for Redline's original code; the third-party MIT notice applies to the attributed circuit source, not the entire project.
+Hyzoom is an independent prototype and is not affiliated with Porsche or the Nürburgring. Verify all relevant commercial asset, branding and track rights before public launch. No open-source license has been selected for Hyzoom's original code; the third-party MIT notice applies to the attributed circuit source, not the entire project.

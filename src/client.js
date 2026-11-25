@@ -123,7 +123,7 @@ for(const sd of [-1,1])for(const [wz,front] of [[1.40,true],[-1.36,false]]){cons
  for(const yy of [.02,.20])panel([sd*.30,yy,wz+.12],[sd*(Math.abs(cx)-w),cyw+yy-.10,wz+.02],[sd*(Math.abs(cx)-w),cyw+yy-.08,wz-.02],[sd*.30,yy+.02,wz-.12],blk);}
 }else{
 if(customBody){for(let [a,b,c,col] of customBody)tri(local(...a),local(...b),local(...c),col);}else{
-// Original "Kestrel" body (Redline's own design, not a replica). Lower body loft, forward bubble canopy,
+// Original "Kestrel" body (Hyzoom's own design, not a replica). Lower body loft, forward bubble canopy,
 // buttresses to a flat louvred engine deck. Wheelbase, tracks and tyre sizes follow the simulated car.
 function ring([z,w,lo,hi]){let pts=[];for(let j=0;j<32;j++){let a=TAU*j/32,c=Math.cos(a),sn=Math.sin(a);pts.push([w*Math.sign(c)*Math.pow(Math.abs(c),.42),(hi+lo)/2+(hi-lo)/2*Math.sign(sn)*Math.pow(Math.abs(sn),.55),z]);}return pts;}
 let rows=[];for(let i=0;i<B.length-1;i++)for(let q=0;q<4;q++)rows.push(B[i].map((x,k)=>x+(B[i+1][k]-x)*q/4));rows.push(B.at(-1));
@@ -456,7 +456,7 @@ async function finish(abandon=false){if(!active||finishBusy)return;active=false;
  const pkey=raceConfig.practiceOnly?Race.VERSION+'-lap':Race.VERSION+'-'+raceConfig.number;$('overlayDesc').textContent=latestResult.status==='finished'?(ranked?'Your ranked time is final.':`Practice best: ${time(practiceBest[pkey])}${raceConfig.practiceOnly&&raceConfig.car==='kestrel'?' · real 992 GT3 RS: 6:49.328':''}`):latestResult.reason||'Attempt ended';}
 // Two-click confirm for ending a ranked run (browser confirm() is unavailable in sandboxed frames).
 let resetArmed=0;$('reset').onclick=()=>{if(!active)return;if(!ranked||performance.now()-resetArmed<3000){resetArmed=0;finish(true);return;}resetArmed=performance.now();$('reset').textContent='Click again to end';setTimeout(()=>{if(active&&ranked)$('reset').textContent='End run';},3000);};
-$('share').onclick=async()=>{let you=leaderboard?.you,text=`REDLINE. ${challenge.day}\nNordschleife S${challenge.number} ${challenge.name}\n${time(attempt.time)}${you?` · #${you.rank}/${leaderboard.total}${you.percentile==null?'':` · faster than ${you.percentile.toFixed(1)}%`}`:' · offline run'}`;try{await navigator.clipboard.writeText(text);$('share').textContent='Copied';}catch{$('resultDetail').textContent=text;$('share').textContent='Copy blocked: text shown above';}};
+$('share').onclick=async()=>{let you=leaderboard?.you,text=`HYZOOM ${challenge.day}\nNordschleife S${challenge.number} ${challenge.name}\n${time(attempt.time)}${you?` · #${you.rank}/${leaderboard.total}${you.percentile==null?'':` · faster than ${you.percentile.toFixed(1)}%`}`:' · offline run'}`;try{await navigator.clipboard.writeText(text);$('share').textContent='Copied';}catch{$('resultDetail').textContent=text;$('share').textContent='Copy blocked: text shown above';}};
 // ASCII cycle buttons drive the (hidden) selects the renderer reads.
 function cycle(btn,sel){const b=$(btn),el=$(sel),show=()=>b.querySelector('b').textContent=el.options[el.selectedIndex].text.toUpperCase();b.onclick=()=>{el.selectedIndex=(el.selectedIndex+1)%el.options.length;el.dispatchEvent(new Event('change'));show();if(active)$('stage').focus({preventScroll:true});};show();}
 $('soundBtn').onclick=()=>setSound(!soundOn);$('soundBtn').querySelector('b').textContent=soundOn?'ON':'OFF';
