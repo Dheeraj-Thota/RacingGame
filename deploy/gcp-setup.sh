@@ -32,6 +32,10 @@ if ! command -v caddy >/dev/null; then
   apt-get update -y && apt-get install -y caddy
 fi
 
+echo "== Automatic security updates"
+apt-get install -y unattended-upgrades
+dpkg-reconfigure -f noninteractive unattended-upgrades
+
 echo "== Small swap file (the e2-micro has 1 GB RAM)"
 if ! swapon --show | grep -q /swapfile; then
   fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
@@ -59,6 +63,7 @@ Environment=HOST=127.0.0.1
 Environment=PORT=3000
 Environment=DB_PATH=$DATA/hyzoom.sqlite
 Environment=COOKIE_SECURE=1
+Environment=TRUST_PROXY=1
 Environment=NODE_NO_WARNINGS=1
 ExecStart=/usr/bin/node server.js
 Restart=always
@@ -68,6 +73,17 @@ ProtectSystem=strict
 ReadWritePaths=$DATA
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
@@ -80,6 +96,9 @@ echo "== HTTPS for $DOMAIN"
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
   encode gzip
+  request_body {
+    max_size 1MB
+  }
   reverse_proxy 127.0.0.1:3000
 }
 EOF

@@ -1,5 +1,5 @@
 'use strict';
-const $=id=>document.getElementById(id)||(()=>{const e=document.createElement('div');e.append(document.createElement('b'));return e;})(), view=$('view'),out=view.getContext('2d'),map=$('map');
+const standIns={},$=id=>document.getElementById(id)||standIns[id]||(standIns[id]=(()=>{const e=document.createElement('div');e.append(document.createElement('b'));return e;})()), view=$('view'),out=view.getContext('2d'),map=$('map');
 let W=128,H=48;const source=document.createElement('canvas');source.width=W;source.height=H;const g=source.getContext('2d',{willReadFrequently:true});
 const road=Race.circuit(TRACK),L=road.length,N=road.points.length,step=road.step,half=Race.HALF,pi=Math.PI,TAU=2*pi,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),wrap=(v,n)=>((v%n)+n)%n,ang=a=>wrap(a+pi,TAU)-pi;
 const track=road.points,at=road.at;
@@ -399,7 +399,7 @@ function updateLobby(){routeArt();sectorList();
  $('resultCard').textContent=lastRun?resultCard(lastRun.state,lastRun.config)+(lastRun.newBest?'\nNEW BEST'+(lastRun.prevBest?` (${(lastRun.state.time-lastRun.prevBest).toFixed(3)} s)`:'')+' · saved as your ghost':'')+traceChart(lastRun.trace,lastRun.ghostTrace):'';$('start').hidden=!!attempt;$('start').disabled=!ready;$('practice').disabled=!ready;$('lap').disabled=!ready;$('mStart').hidden=!!attempt;$('mStart').disabled=!ready;$('mPractice').disabled=!ready;$('mLap').disabled=!ready;
  $('perf').textContent='Ready · '+(gl?'GPU':'CPU');$('overlayBox').style.display=lastRun||attempt?'':'none';$('reset').disabled=true;$('pause').hidden=true;drawBoard();}
 let liveSrc=null;function goLive(){if(!online||liveSrc||typeof EventSource==='undefined')return;liveSrc=new EventSource('/api/live');
- liveSrc.onmessage=async()=>{try{const data=await api('daily');if(data.challenge.id!==challenge.id)return;leaderboard=data.leaderboard;attempt=data.attempt||attempt;drawBoard();}catch{}};}
+ liveSrc.onmessage=async()=>{await new Promise(r=>setTimeout(r,Math.random()*2500));try{const data=await api('daily');if(data.challenge.id!==challenge.id)return;leaderboard=data.leaderboard;attempt=data.attempt||attempt;drawBoard();}catch{}};}
 // Start playable at once in local mode; the leaderboard server, when there is one, is joined in the background.
 async function init(){attempt=storage.get(challenge.id);practiceBest=storage.get('redline-practice-'+Race.VERSION)||{};$('name').value=storage.get('redline-name')||'';raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;ready=true;frames();specSheet();updateLobby();
  if(location.protocol==='file:')return;try{const data=await api('daily');if(active||startPending)return;online=true;const changed=data.challenge.id!==challenge.id;challenge=data.challenge;attempt=data.attempt;leaderboard=data.leaderboard;if(changed){raceConfig=challenge;carState=Race.initial(challenge);syncState();cachedK=-1;}updateLobby();goLive();}catch{online=false;}}
