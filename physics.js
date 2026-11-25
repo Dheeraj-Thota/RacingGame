@@ -1,10 +1,11 @@
-/* Redline shared deterministic vehicle simulation, SI units, version 5.
+/* Redline shared deterministic vehicle simulation, SI units, version 6 (multiple cars).
  *
  * Four-wheel planar vehicle model in track-relative (curvilinear) coordinates:
  *  - combined-slip tyre model (Pacejka "magic formula" shape on normalised slip), load-sensitive grip
  *  - quasi-static longitudinal/lateral load transfer with damper lag, crest/compression loads from real elevation
  *  - wheel spin dynamics per wheel, reflected engine inertia, limited-slip rear differential
- *  - published 992 GT3 RS figures: mass, wheelbase, tracks, tyre sizes, power/torque peaks, PDK ratios, aero
+ *  - cars: Formula '86 (generic mid-1980s turbo single-seater, estimated figures) and Kestrel RS (published
+ *    992 GT3 RS figures: mass, wheelbase, tracks, tyre sizes, power/torque peaks, PDK ratios, aero); turbo lag
  *  - rear-wheel drive; ABS, permissive traction control (throttle oversteer is possible), PSM-style stability
  *    control and rear-axle steering (fixed for every driver), keyboard steering limiter
  *
@@ -25,9 +26,9 @@ function atan(x){let s=1;if(x<0){x=-x;s=-1;}let inv=false;if(x>1){x=1/x;inv=true
  const x2=x*x;let r=off+x*(1+x2*(-1/3+x2*(1/5+x2*(-1/7+x2*(1/9+x2*(-1/11+x2*(1/13+x2*(-1/15))))))));if(inv)r=HALF_PI-r;return s*r;}
 function atan2(y,x){if(x>0)return atan(y/x);if(x<0)return y>=0?atan(y/x)+PI:atan(y/x)-PI;return y>0?HALF_PI:y<0?-HALF_PI:0;}
 
-// ---- 992 GT3 RS. Published: Porsche technical data (EU model, MY 08/2022). Estimated values marked "est". ----
-const CAR={
- name:'911 GT3 RS (992)',
+// ---- Kestrel RS: performance from published 992 GT3 RS data (Porsche, EU model, MY 08/2022). "est" = estimate. ----
+const KESTREL={
+ id:'kestrel',display:'Kestrel RS',name:'911 GT3 RS (992)',
  mass:1525,            // 1450 kg DIN kerb weight + 75 kg driver
  wheelbase:2.457, trackF:1.630, trackR:1.582, length:4.572, width:1.900, height:1.322,
  frontWeight:.39,      // est: rear-engined 992 GT3 static distribution ~39/61
@@ -48,8 +49,42 @@ const CAR={
  discHeat:5200,       // est J/K per corner (disc, pad, caliper share); steel discs
  brakeTemp0:260,      // degC at a rolling start
  mu:1.46, muLoadSens:.07, loadRef:4000, peakSlip:.12, peakRatio:.11, // est: Cup 2 R dry
- maxSteer:.43, rearSteer:.035
+ maxSteer:.43, rearSteer:.035,
+ overhangF:1.04, overhangR:1.05, halfWidth:.95,
+ turboLag:0, boostShare:0, launchRpm:2600, revStart:7600, shiftUp:8850, shiftDownBrake:8400, shiftDown:6400, shiftDownLow:3800,
+ reverseRatio:3.42, engineDrag:[22,.0052], lsd:[140,.35], padCold:120, padColdMu:.80, padFade:720,
+ assists:{abs:.95, tc:2.0, psm:true, counter:[.3,.22]}, assistText:'ABS · TC · PSM · steering limiter'
 };
+// ---- Formula '86: generic mid-1980s turbo-era single-seater. All figures are estimates typical of the period,
+// not any specific car: ~540 kg minimum weight + driver + fuel, 1.5 l turbo V6 ~850 PS in race trim,
+// 12,000 rpm, 6 gears, slick tyres, high downforce, carbon brakes. Light ABS and traction control are game
+// concessions for keyboard and pad play; there is no stability control or rear steer. ----
+const FORMULA={
+ id:'f1',display:"Formula '86",name:"Formula '86",
+ mass:650, wheelbase:2.80, trackF:1.80, trackR:1.66, length:4.40, width:2.10, height:1.00,
+ frontWeight:.42, cgHeight:.28, yawInertia:900, rollFront:.52,
+ tyreF:{radius:.33,width:.30,inertia:.9}, tyreR:{radius:.33,width:.42,inertia:1.15},
+ torque:[[3000,150],[5000,250],[7000,430],[8500,560],[10000,600],[11000,560],[11800,500],[12300,0]],
+ redline:12000, idle:3500, engineInertia:.08,
+ ratios:[2.90,2.20,1.75,1.45,1.24,1.10], finalDrive:4.10, driveEfficiency:.93,
+ downforce:1.85, aeroFront:.40, dragArea:1.05, airDensity:1.225, rolling:.015,
+ brakeF:3000, brakeR:1700, brakeLag:.03, discHeat:3000, brakeTemp0:450,
+ mu:1.70, muLoadSens:.11, loadRef:3000, peakSlip:.10, peakRatio:.12,
+ maxSteer:.33, rearSteer:0,
+ overhangF:.95, overhangR:.62, halfWidth:1.05,
+ turboLag:.40, boostShare:.55, launchRpm:6500, revStart:10500, shiftUp:11700, shiftDownBrake:11000, shiftDown:8500, shiftDownLow:6500,
+ reverseRatio:3.0, engineDrag:[30,.004], lsd:[60,.25], padCold:380, padColdMu:.55, padFade:1100,
+ assists:{abs:1.35, tc:2.3, psm:false, counter:[.25,.18]}, assistText:'light ABS · light TC · steering limiter'
+};
+const CARS={f1:FORMULA,kestrel:KESTREL},MAIN_CAR='f1';
+// The active car. Every simulation entry point selects it from the challenge, so one module serves any car.
+let CAR=FORMULA,A=0,B=0,CORNERS=[];
+const TW=[{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}];
+function use(id){const k=CARS[id]||CARS[MAIN_CAR];if(k===CAR&&CORNERS.length)return k;CAR=k;
+ A=k.wheelbase*(1-k.frontWeight);B=k.wheelbase*k.frontWeight; // CG to front / rear axle
+ TW[0].x=A;TW[0].y=-k.trackF/2;TW[1].x=A;TW[1].y=k.trackF/2;TW[2].x=-B;TW[2].y=-k.trackR/2;TW[3].x=-B;TW[3].y=k.trackR/2;
+ const fx=A+k.overhangF,rx=-B-k.overhangR,hw=k.halfWidth;CORNERS=[[fx,-hw],[fx,hw],[rx,-hw],[rx,hw],[0,-hw-.03],[0,hw+.03]];return k;}
+use(MAIN_CAR);
 
 const SUB=4,HZ=120,DT=1/HZ,H=DT/SUB,G=9.81,HALF=4.7,WALL=8.05,PENALTY_LINE=HALF+.55;
 const L=20822.565;   // must equal track.json length
@@ -84,15 +119,18 @@ const sectors=[
  {start:10400,length:2750,rolling:46,name:'Mutkurve – Karussell – Hohe Acht'},
  {start:13150,length:2650,rolling:30,name:'Wippermann – Pflanzgarten'},
  {start:15800,length:3100,rolling:42,name:'Bellof-S – Döttinger Höhe'}];
-const VERSION='nord-v5';
+const VERSION='nord-v6';
 function maxTicksFor(length){return Math.round(HZ*Math.max(180,length/10));}
 const MAX_TICKS=maxTicksFor(3200);
+// The daily ranked run always uses the main car, so every driver races identical machinery.
 function challenge(date){const day=typeof date==='string'?date:new Date().toISOString().slice(0,10),i=wrap(Math.floor(Date.parse(day+'T00:00:00Z')/86400000),sectors.length);
- return {day,id:VERSION+'-'+day,number:i+1,...sectors[i],car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(sectors[i].length)};}
-function fullLap(){return {day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',car:CAR.name,surface:'Dry',assists:'ABS · TC · steering limiter',maxTicks:maxTicksFor(L),practiceOnly:true};}
+ return withCar({day,id:VERSION+'-'+day,number:i+1,...sectors[i],surface:'Dry',maxTicks:maxTicksFor(sectors[i].length)},MAIN_CAR);}
+function fullLap(car=MAIN_CAR){return withCar({day:'lap',id:VERSION+'-lap',number:0,start:0,length:L,rolling:28,name:'Full lap · 20.8 km',surface:'Dry',maxTicks:maxTicksFor(L),practiceOnly:true},car);}
+// Same challenge with another car (practice). The id carries the car so ghosts and bests stay separate.
+function withCar(c,car){const k=CARS[car]||CARS[MAIN_CAR],base=c.id.replace(/~[a-z0-9]+$/,'');return {...c,car:k.id,carName:k.display,assists:k.assistText,id:k.id===MAIN_CAR?base:base+'~'+k.id};}
 
 // ---- Brakes: pad friction vs disc temperature (cold bite, plateau, fade above ~720 degC) ----
-function padMu(t){if(t<120)return .80+.20*t/120;if(t<720)return 1;return Math.max(.55,1-(t-720)/950);}
+function padMu(t){if(t<CAR.padCold)return CAR.padColdMu+(1-CAR.padColdMu)*Math.max(0,t)/CAR.padCold;if(t<CAR.padFade)return 1;return Math.max(.55,1-(t-CAR.padFade)/950);}
 
 // ---- Engine ----
 function engineTorque(rpm){const t=CAR.torque;if(rpm<=t[0][0])return t[0][1];for(let i=1;i<t.length;i++)if(rpm<=t[i][0]){const a=t[i-1],b=t[i];return a[1]+(b[1]-a[1])*(rpm-a[0])/(b[0]-a[0]);}return 0;}
@@ -117,22 +155,19 @@ function decode(code){if(code<ANALOG)return {analog:false,gas:code&1?1:0,brake:c
  const c=code-ANALOG,st=c%255,pd=Math.floor(c/255);return {analog:true,steer:(st-127)/127,gas:(pd%16)/15,brake:Math.floor(pd/16)/15};}
 function encodeAnalog(steer,gas,brake){return ANALOG+Math.round(clamp(steer,-1,1)*127+127)+255*(Math.round(clamp(gas,0,1)*15)+16*Math.round(clamp(brake,0,1)*15));}
 
-function initial(c){const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<7&&rpmFor(wr,gear)>7600)gear++;
- return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
+function initial(c){use(c.car);const v=c.rolling,wf=v/CAR.tyreF.radius,wr=v/CAR.tyreR.radius;let gear=1;while(gear<CAR.ratios.length&&rpmFor(wr,gear)>CAR.revStart)gear++;
+ return {s:c.start,d:0,heading:0,vx:v,vy:0,yawRate:0,v,w:[wf,wf,wr,wr],gear,shift:0,rpm:rpmFor(wr,gear),abs:[1,1,1,1],tc:1,boost:.6,bp:0,bt:[CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0,CAR.brakeTemp0],reverse:false,revHold:0,steer:0,delta:0,gas:0,brake:0,ax:0,ay:0,
   load:[0,0,0,0],psm:0,slip:[0,0,0,0],surface:[0,0,0,0],ticks:0,offTicks:0,contact:false,invalid:false,done:false,time:null,reason:'',maxSpeed:v,penalty:0,wallTicks:0,collisions:0,lastContact:-10000,cornerSpeed:90,impact:0,airborne:false};}
 
 // Corner-speed estimate for HUD cues and the test driver: grip + aero limited, braking-distance aware.
-function safeSpeed(road,s,margin=1){const mu=1.42*margin,m=CAR.mass,kz=CAR.downforce;let target=92;
+function safeSpeed(road,s,margin=1){const mu=CAR.mu*.97*margin,m=CAR.mass,kz=CAR.downforce;let target=92;
  for(let x=0;x<=320;x+=8){const k=Math.abs(road.at(s+x).k);if(k>.0004){const den=k-mu*kz/m;const vc=den>1e-5?Math.sqrt(mu*G/den):92;
-  const decel=12.5*margin;target=Math.min(target,Math.sqrt(vc*vc+2*decel*x));}}return Math.min(target,92);}
+  const decel=12.5*margin*CAR.mu/1.46;target=Math.min(target,Math.sqrt(vc*vc+2*decel*x));}}return Math.min(target,92);}
 
-const TW=[{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}],tyreOut={fx:0,fy:0,dfx:0,mu:0,grip:1};
-const A=CAR.wheelbase*(1-CAR.frontWeight),B=CAR.wheelbase*CAR.frontWeight; // CG to front / rear axle
-TW[0].x=A;TW[0].y=-CAR.trackF/2;TW[1].x=A;TW[1].y=CAR.trackF/2;TW[2].x=-B;TW[2].y=-CAR.trackR/2;TW[3].x=-B;TW[3].y=CAR.trackR/2;
-const CORNERS=[[A+1.04,-.95],[A+1.04,.95],[-B-1.05,-.95],[-B-1.05,.95],[0,-.98],[0,.98]];
+const tyreOut={fx:0,fy:0,dfx:0,mu:0,grip:1};
 
 function psmCut(a){return clamp((a.psm||0)*1.4,0,.9);}
-function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
+function step(a,code,c,road){if(a.done)return a;use(c.car);const inp=decode(code);const AS=CAR.assists;
  // Pedal and steering input filters (keyboard pedals ramp like a quick foot; analogue is passed through).
  if(inp.analog){a.gas=inp.gas;a.brake=inp.brake;a.steer+=(inp.steer-a.steer)*.5;}
  else{a.gas+=(inp.gas-a.gas)*Math.min(1,DT*10);a.brake+=(inp.brake-a.brake)*Math.min(1,DT*14);
@@ -151,10 +186,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const betaF=atan((v+r*A)/uu),align=clamp(betaF*.7,-lim,lim),mag=Math.abs(a.steer);
   const beta=atan(v/uu),sliding=Math.abs(beta)>.04&&sgn(beta)===-sgn(r)&&u>6;
   // Steering assist (as in arcade-sim racers on keyboard/pad): when the rear steps out, add countersteer.
-  const counter=sliding?clamp(beta*(inp.analog?.3:.22),-.14,.14):0;
+  const counter=sliding?clamp(beta*(inp.analog?AS.counter[0]:AS.counter[1]),-.14,.14):0;
   const delta=(inp.analog?a.steer*clamp(kin+CAR.peakSlip*1.6,.1,CAR.maxSteer):a.steer*lim+(1-mag)*align)+counter;
   a.delta=delta;
-  const rs=clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer);
+  const rs=CAR.rearSteer?clamp(delta*clamp((u-22)/40,-.15,.08),-CAR.rearSteer,CAR.rearSteer):0;
   // Loads: static (with crests/compressions and grade), aero, transfer
   const vertical=clamp(1-p.grade*p.grade*.5+u*u*p.kv/G,.25,2.5),down=CAR.downforce*u*u,wF=m*G*vertical*(1-A/L_),wR=m*G*vertical*(A/L_);
   const dLong=m*a.ax*h/L_,dLatF=m*a.ay*h*CAR.rollFront/CAR.trackF,dLatR=m*a.ay*h*(1-CAR.rollFront)/CAR.trackR;
@@ -162,21 +197,24 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
   const fz=[Math.max(0,fF+dLatF),Math.max(0,fF-dLatF),Math.max(0,fR+dLatR),Math.max(0,fR-dLatR)]; // + ay (rightward) loads the left wheels
   a.airborne=fz[0]+fz[1]+fz[2]+fz[3]<m*G*.15;
   // Drivetrain
-  const g=a.gear,gr=a.reverse?-3.42*CAR.finalDrive:gearRatio(g),wr=(a.w[2]+a.w[3])/2,rpmWheels=wr*gr*60/TAU;
+  const g=a.gear,gr=a.reverse?-CAR.reverseRatio*CAR.finalDrive:gearRatio(g),wr=(a.w[2]+a.w[3])/2,rpmWheels=wr*gr*60/TAU;
   let rpm=rpmWheels,thr=a.reverse?(a.vx<-7?0:Math.min(pedalGas,.75)):pedalGas*(1-pedalBrake*.85);
-  if(rpmWheels<2600&&thr>.05)rpm=Math.max(rpmWheels,2600+thr*1800); // clutch slip at very low road speed
+  if(rpmWheels<CAR.launchRpm&&thr>.05)rpm=Math.max(rpmWheels,CAR.launchRpm+thr*1800); // clutch slip at very low road speed
   rpm=Math.max(rpm,CAR.idle);a.rpm=rpm;
-  const limiter=rpm>=CAR.redline?0:1,tq=thr*engineTorque(rpm)*limiter*a.tc*(1-psmCut(a))-(1-thr)*(22+.0052*rpm);
+  // Turbo: boost follows the throttle with a lag that shortens as revs rise.
+  if(CAR.boostShare){a.boost+=(thr-a.boost)*Math.min(1,H*(thr>a.boost?(.3+rpm/CAR.redline)/CAR.turboLag:6));}
+  const boostF=CAR.boostShare?1-CAR.boostShare+CAR.boostShare*a.boost:1;
+  const limiter=rpm>=CAR.redline?0:1,tq=thr*engineTorque(rpm)*boostF*limiter*a.tc*(1-psmCut(a))-(1-thr)*(CAR.engineDrag[0]+CAR.engineDrag[1]*rpm);
   const axle=tq*gr*(tq>0?CAR.driveEfficiency:1/CAR.driveEfficiency);
   const reflected=CAR.engineInertia*gr*gr/2;
-  const lock=clamp((a.w[2]-a.w[3])*650,-(140+.35*Math.abs(axle)),140+.35*Math.abs(axle));
+  const lim2=CAR.lsd[0]+CAR.lsd[1]*Math.abs(axle),lock=clamp((a.w[2]-a.w[3])*650,-lim2,lim2);
   // PSM (stability control): when sideslip and yaw exceed what the steering asks for, cut torque and
   // brake the outer front wheel to create a stabilising yaw moment.
   const rRef=u*delta/(L_+.0006*u*u*L_),over=Math.abs(r)>Math.abs(rRef)+.06&&Math.abs(beta)>.065&&sgn(beta)===-sgn(r)&&u>8;
-  const psm=over?clamp((Math.abs(beta)-.065)*7+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
+  const psm=over&&AS.psm?clamp((Math.abs(beta)-.065)*7+(Math.abs(r)-Math.abs(rRef))*.8,0,1):0;a.psm=psm;
   const psmWheel=r>0?0:1; // turning right -> outer (left) front
   a.bp+=(pedalBrake-a.bp)*Math.min(1,H/CAR.brakeLag);
-  let Fx=0,Fy=0,Mz=0,tcSlip=0;
+  let Fx=0,Fy=0,Mz=0,tcSlip=0,driveSlip=0;
   for(let i=0;i<4;i++){
    const W=TW[i],front=i<2,ty=front?CAR.tyreF:CAR.tyreR,R=ty.radius,st=front?delta:rs;
    const wu=u-r*W.y,wv=v+r*W.x,cd=cos(st),sd=sin(st),tu=wu*cd+wv*sd,tv=-wu*sd+wv*cd;
@@ -187,10 +225,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
    tyre(kappa,ta,fz[i],tyreOut);
    const fx=tyreOut.fx,fy=tyreOut.fy;const nk=kappa/CAR.peakRatio,na=ta/CAR.peakSlip;a.slip[i]=Math.sqrt(nk*nk+na*na);a.load[i]=fz[i];
    // ABS per wheel, TC on driven wheels
-   const target=-CAR.peakRatio*(front?.95:.82); // ABS slip target; lower at the rear (EBD) for stability
+   const target=-CAR.peakRatio*AS.abs*(front?1:.86); // ABS slip target; lower at the rear (EBD) for stability
    if(a.bp>.02&&kappa<target)a.abs[i]=Math.max(.05,a.abs[i]-H*(30+260*(target-kappa)/CAR.peakRatio));
    else a.abs[i]=Math.min(1,a.abs[i]+H*(kappa>target*.6?10:4));
-   if(!front&&kappa>CAR.peakRatio*1.45)tcSlip=1;
+   if(!front&&kappa>0)driveSlip=Math.max(driveSlip,a.slip[i]); // combined slip of a driven tyre under power
    // Wheel spin, semi-implicit in the tyre's longitudinal stiffness
    const I=ty.inertia+(front?0:reflected),drive=front?0:axle/2+(i===2?-lock:lock);
    const brakeT=Math.min(1,a.bp+(i===psmWheel?psm*.55:0))*(front?CAR.brakeF:CAR.brakeR)*a.abs[i]*padMu(a.bt[i]),roll=CAR.rolling*fz[i]*R;
@@ -201,7 +239,9 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
    // tyre forces to body frame
    const bx=fx*cd-fy*sd,by=fx*sd+fy*cd;Fx+=bx;Fy+=by;Mz+=W.x*by-W.y*bx;
   }
-  a.tc=tcSlip?Math.max(.2,a.tc-H*9):Math.min(1,a.tc+H*4);
+  // Traction control: proportional slip-target controller on the driven wheels (cuts harder the further past target).
+  {const tcT=AS.tc-(AS.tc-1.4)*clamp((u-20)/20,0,1),ex=driveSlip-tcT; // looser in slow corners, tighter at speed
+  a.tc=ex>0?Math.max(.05,a.tc-H*(12+90*ex)):Math.min(1,a.tc+H*(ex<-.4?6:2.5));}
   // Aero drag, grade, off-road drag
   const drag=.5*CAR.airDensity*CAR.dragArea*u*Math.abs(u),offDrag=(a.surface[0]===2?1:0)+(a.surface[1]===2?1:0)+(a.surface[2]===2?1:0)+(a.surface[3]===2?1:0);
   Fx-=drag+m*G*p.grade+offDrag*.06*m*G*sgn(u);
@@ -225,8 +265,8 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
  }
  // PDK: shift points near the limiter; aggressive downshifts under braking. 0.18 s between shifts.
  a.shift=Math.max(0,a.shift-DT);const wr2=(a.w[2]+a.w[3])/2,rpmNow=rpmFor(wr2,a.gear);
- if(a.reverse){a.gear=1;}else if(a.shift===0){if(a.gear<7&&rpmNow>8850&&a.gas>.5){a.gear++;a.shift=.18;}
-  else if(a.gear>1&&rpmFor(wr2,a.gear-1)<(a.brake>.2?8400:6400)&&(a.brake>.2||rpmNow<3800)){a.gear--;a.shift=.18;}}
+ if(a.reverse){a.gear=1;}else if(a.shift===0){if(a.gear<CAR.ratios.length&&rpmNow>CAR.shiftUp&&a.gas>.5){a.gear++;a.shift=.18;}
+  else if(a.gear>1&&rpmFor(wr2,a.gear-1)<(a.brake>.2?CAR.shiftDownBrake:CAR.shiftDown)&&(a.brake>.2||rpmNow<CAR.shiftDownLow)){a.gear--;a.shift=.18;}}
  a.v=Math.sqrt(a.vx*a.vx+a.vy*a.vy);a.ticks++;a.maxSpeed=Math.max(a.maxSpeed,a.v);a.contact=contactNow;a.impact=impact;
  if(a.ticks%12===1)a.cornerSpeed=safeSpeed(road,a.s);
  // Track limits: all four wheels beyond the white line (plus kerb allowance)
@@ -237,10 +277,10 @@ function step(a,code,c,road){if(a.done)return a;const inp=decode(code);
  return a;
 }
 
-function replay(c,road,runs){const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
+function replay(c,road,runs){if(!CARS[c.car])throw Error('Unknown car');const max=c.maxTicks||MAX_TICKS;if(!Array.isArray(runs)||runs.length>max)throw Error('Bad replay');let a=initial(c);
  for(let i=0;i<runs.length;i++){const x=runs[i];if(!Array.isArray(x)||x.length!==2||!Number.isInteger(x[0])||x[0]<0||x[0]>MAX_CODE||!Number.isInteger(x[1])||x[1]<1||x[1]>max||a.ticks+x[1]>max)throw Error('Bad input');
   for(let j=0;j<x[1];j++){if(a.done)throw Error('Trailing input');step(a,x[0],c,road);}}return a;}
 
-const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CAR,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
+const api={L,HZ,DT,SUB,HALF,WALL,MAX_TICKS,CARS,MAIN_CAR,CAR:KESTREL,spec:id=>CARS[id]||CARS[MAIN_CAR],withCar,use,VERSION,sectors,circuit,challenge,fullLap,initial,step,replay,safeSpeed,decode,encodeAnalog,engineTorque,gearRatio,rpmFor,math:{sin,cos,atan,atan2}};
 if(typeof module==='object'&&module.exports)module.exports=api;else root.Race=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

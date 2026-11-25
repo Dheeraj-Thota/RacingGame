@@ -25,20 +25,24 @@ let err = 0; for (let x = -40; x < 40; x += .0173) err = Math.max(err, Math.abs(
 assert(err < 1e-9); ok('polynomial trig within ' + err.toExponential(1));
 
 // Car calibration against published figures (synthetic flat roads)
-const straight = R.circuit({ step: 6, points: Array.from({ length: 6000 }, (_, i) => [0, 0, i * 6]) }), flat = r => ({ start: 600, length: 30000, rolling: r, maxTicks: 1e7 });
+const straight = R.circuit({ step: 6, points: Array.from({ length: 6000 }, (_, i) => [0, 0, i * 6]) }), flat = (r, car = 'kestrel') => ({ start: 600, length: 30000, rolling: r, maxTicks: 1e7, car });
 { const c = flat(.5), a = R.initial(c); let t100 = 0; while (a.ticks < 120 * 70) { R.step(a, 1, c, straight); if (!t100 && a.vx >= 100 / 3.6) t100 = a.ticks / 120; }
   assert(t100 > 3 && t100 < 4.2, '0-100 ' + t100); assert(a.maxSpeed * 3.6 > 285 && a.maxSpeed * 3.6 < 305, 'vmax ' + a.maxSpeed * 3.6);
-  ok(`0-100 km/h ${t100.toFixed(2)} s (published 3.2), top speed ${(a.maxSpeed * 3.6).toFixed(0)} km/h (published 296)`); }
+  ok(`Kestrel RS 0-100 km/h ${t100.toFixed(2)} s (published GT3 RS 3.2), top speed ${(a.maxSpeed * 3.6).toFixed(0)} km/h (296)`); }
+{ const c = flat(.5, 'f1'), a = R.initial(c); let t100 = 0, t200 = 0; while (a.ticks < 120 * 60) { R.step(a, 1, c, straight); if (!t100 && a.vx >= 100 / 3.6) t100 = a.ticks / 120; if (!t200 && a.vx >= 200 / 3.6) t200 = a.ticks / 120; }
+  assert(t100 > 2.2 && t100 < 3.4, 'F1 0-100 ' + t100); assert(t200 > 4 && t200 < 6.5, 'F1 0-200 ' + t200); assert(a.maxSpeed * 3.6 > 310 && a.maxSpeed * 3.6 < 350, 'F1 vmax ' + a.maxSpeed * 3.6);
+  const b = R.initial(flat(200 / 3.6, 'f1')), s0 = b.s; while (b.vx > .2) R.step(b, 2, flat(200 / 3.6, 'f1'), straight); assert(b.s - s0 > 45 && b.s - s0 < 85, 'F1 200-0 ' + (b.s - s0));
+  ok(`Formula '86 0-100 ${t100.toFixed(2)} s, 0-200 ${t200.toFixed(2)} s, top speed ${(a.maxSpeed * 3.6).toFixed(0)} km/h, 200-0 in ${(b.s - s0).toFixed(0)} m (estimated period figures)`); }
 { const c = flat(100 / 3.6), a = R.initial(c), s0 = a.s; while (a.vx > .2) R.step(a, 2, c, straight); const dist = a.s - s0;
-  assert(dist > 24 && dist < 36, '100-0 ' + dist); ok(`100-0 km/h in ${dist.toFixed(1)} m with ABS`); }
+  assert(dist > 24 && dist < 36, '100-0 ' + dist); ok(`Kestrel RS 100-0 km/h in ${dist.toFixed(1)} m with ABS`); }
 
 // Brakes: ABS keeps every wheel turning, straight-line stop stays straight, repeated stops heat the discs
 { const c = flat(250 / 3.6), a = R.initial(c); let locked = false;
-  while (a.vx > .3) { R.step(a, 2, c, straight); if (a.vx > 8 && a.w.some((w, i) => w * (i < 2 ? R.CAR.tyreF.radius : R.CAR.tyreR.radius) < a.vx * .6)) locked = true; }
+  while (a.vx > .3) { R.step(a, 2, c, straight); if (a.vx > 8 && a.w.some((w, i) => w * (i < 2 ? R.spec('kestrel').tyreF.radius : R.spec('kestrel').tyreR.radius) < a.vx * .6)) locked = true; }
   assert(!locked, 'ABS let a wheel lock'); assert(Math.abs(a.heading) < 1e-3 && Math.abs(a.d) < .05, 'straight-line stop drifted');
   const b = R.initial(c), dists = [];
   for (let n = 0; n < 6; n++) { while (b.vx < 250 / 3.6) R.step(b, 1, c, straight); const s0 = b.s; while (b.vx > 80 / 3.6) R.step(b, 2, c, straight); dists.push(b.s - s0); }
-  assert(b.bt[0] > R.CAR.brakeTemp0 + 100, 'discs heat up'); assert(Math.max(...dists) - Math.min(...dists) < 6, 'consistent stops without fade at road-car temps');
+  assert(b.bt[0] > R.spec('kestrel').brakeTemp0 + 100, 'discs heat up'); assert(Math.max(...dists) - Math.min(...dists) < 6, 'consistent stops without fade at road-car temps');
   ok(`ABS no lock-up, straight stop; 6 x 250-80 km/h stops ${dists.map(d => d.toFixed(0)).join('/')} m, front disc ${b.bt[0].toFixed(0)} C`); }
 
 // Every daily sector: reference driver finishes cleanly; the server replay reproduces the exact time
@@ -48,8 +52,15 @@ for (let i = 0; i < R.sectors.length; i++) {
   assert(state.done && !state.invalid, c.name + ': ' + state.reason);
   assert.equal(state.collisions, 0, c.name + ' barrier contacts');
   assert.equal(R.replay(c, road, inputs).time, state.time);
-  ok(`sector ${c.number} ${c.name}: ${state.time.toFixed(3)} s, clean, peak ${(state.maxSpeed * 3.6).toFixed(0)} km/h, replay identical`);
+  assert.equal(c.car, R.MAIN_CAR);
+  ok(`sector ${c.number} ${c.name} (${c.carName}): ${state.time.toFixed(3)} s, clean, peak ${(state.maxSpeed * 3.6).toFixed(0)} km/h, replay identical`);
 }
+// The secondary car in practice: different id, clean run, its own physics in the replay
+{ const c = R.withCar(R.challenge('2026-11-26'), 'kestrel'), { state, inputs } = drive(c, road);
+  assert(c.id.endsWith('~kestrel') && state.done && !state.invalid && state.collisions === 0); assert.equal(R.replay(c, road, inputs).time, state.time);
+  assert.notEqual(R.replay(R.challenge('2026-11-26'), road, inputs.slice(0, 50)).ticks, undefined);
+  assert.throws(() => R.replay({ ...c, car: 'nope' }, road, inputs));
+  ok(`Kestrel RS practice run ${state.time.toFixed(3)} s, replay identical; unknown car rejected`); }
 
 // Keyboard (digital) inputs replay identically too
 { const c = R.challenge('2026-11-26'), { state, inputs } = drive(c, road, { digital: true });
@@ -58,7 +69,9 @@ for (let i = 0; i < R.sectors.length; i++) {
 
 // Full lap (practice mode)
 { const c = R.fullLap(), { state } = drive(c, road); assert(state.done && !state.invalid, 'lap ' + state.reason);
-  ok(`full lap by cautious reference driver ${lap(state.time)} (real car 6:49.328; theoretical for this model ~6:47 on a basic racing line)`); }
+  ok(`full lap, Formula '86, cautious reference driver: ${lap(state.time)}`); }
+{ const c = R.fullLap('kestrel'), { state } = drive(c, road); assert(state.done && !state.invalid);
+  ok(`full lap, Kestrel RS, cautious reference driver: ${lap(state.time)} (real 992 GT3 RS 6:49.328)`); }
 
 // Input validation
 assert.throws(() => R.replay(R.challenge(), road, [[-1, 1]])); assert.throws(() => R.replay(R.challenge(), road, [[16 + 255 * 256, 1]]));

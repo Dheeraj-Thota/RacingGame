@@ -12,7 +12,8 @@
 
 ## Next — Garage and tracks (requested)
 
-- [ ] Garage: choose between cars (e.g. a generic open-wheel single-seater alongside the Kestrel RS). Physics already reads every car figure from one `CAR` object; make it a per-challenge, versioned setting so replays stay valid.
+- [x] Garage with two cars (Formula '86 main, Kestrel RS practice); car is part of each challenge and replay (v6).
+- [ ] More cars; per-car daily leaderboards if ranked runs ever allow a choice.
 - [ ] Additional tracks: generalise `tools/build-track.js` and sector definitions per circuit; keep licensing notes per track.
 
 ## P1 — Daily competition

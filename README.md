@@ -37,7 +37,7 @@ npm test
 | Gamepad | Left stick steers, triggers are analogue throttle and brake |
 | P | Pause practice |
 | R | Restart practice |
-| C / VIEW | Chase far, chase near, bumper, hood |
+| C / VIEW | Chase high (default), chase, bumper, hood |
 | L / LINE | Driving line on/off |
 | G / GHOST | Ghost of your best run on/off |
 | M / SOUND | Sound on/off |
@@ -123,6 +123,13 @@ Use durable database storage and HTTPS for a hosted instance. Do not expose this
 - Handling balance aims for the approachable, progressive feel of arcade-sim racers such as Forza Horizon: a gentle tyre breakaway past the peak and forgiving barrier contact. At the grip limit, peak sideslip under full power is about 10–11° (21° in the previous tuning) and under trail-braking about 3° (6°).
 - Barriers use rigid-body impulses at the car's corners.
 
+**Cars.** Physics reads every figure from a per-car spec (`CARS` in `physics.js`), and each challenge names its car, so replays and server validation always use the right one. The daily ranked run uses the main car.
+
+- **Formula '86** (main car): a generic mid-1980s turbo single-seater. Estimated period-typical figures: 650 kg with driver, ~877 PS turbo V6 with turbo lag, 12,000 rpm, 6 speeds, slicks, high downforce (~900 kg at 250 km/h), carbon brakes that need heat. Light ABS and traction control are game concessions for keyboard and pad. Simulated 0-100 km/h 2.7 s, 0-200 km/h 4.7 s, 324 km/h, 200-0 km/h in 65 m.
+- **Kestrel RS** (practice): published 992 GT3 RS figures, below.
+
+Traction control is a slip-target controller that allows more slide in slow corners than at speed (corner-exit slides of about 9 degrees at the limit in both cars).
+
 Published 992 GT3 RS figures used: 1450 kg DIN (+75 kg driver), 2457 mm wheelbase, 1630/1582 mm tracks, 275/35 R20 and 335/30 R21 tyres, 386 kW at 8500 rpm, 465 Nm at 6300 rpm, 9000 rpm, PDK ratios 3.75/2.38/1.72/1.34/1.11/0.96/0.84 with 4.27 final drive, 409 kg downforce at 200 km/h and 860 kg at 285 km/h. Weight distribution, CG height, inertias, roll stiffness split, intermediate torque-curve points, brake torque and tyre coefficients are estimates and are marked as such in the code.
 
 Calibration (`node tools/calibrate.js`): 0–100 km/h 3.7 s (published 3.2), 0–200 km/h 11.1 s (10.6), top speed 293 km/h (296), 100–0 km/h 28 m, 250–0 km/h 142 m, about 1.45 g steady-state lateral grip. A quasi-steady lap estimate for this model is about 7:08 on the centreline and 6:47 on a basic racing line, against the real car's 6:49.3. These are model checks, not validation against telemetry, and no human playtesting has been done on this version.
@@ -143,7 +150,7 @@ The renderer draws a detailed scene for roughly the next 650 m and a low-detail 
 
 ## Asset fidelity and licensing
 
-The bundled car is the **Kestrel RS**, an original Redline design in the spirit of a rear-engined track car, not a replica of any production model. Its wheelbase, tracks and tyre sizes match the simulated car, its wheels spin and steer from the simulation, and it comes in six paints with racing stripes. Performance is modelled on published 992 GT3 RS figures; the body is not a Porsche asset. A second body, **Formula '86**, is an original generic 1980s-style single-seater (CAR button in the lobby); for now it is visual only and drives with the Kestrel RS physics. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
+The bundled car is the **Kestrel RS**, an original Redline design in the spirit of a rear-engined track car, not a replica of any production model. Its wheelbase, tracks and tyre sizes match the simulated car, its wheels spin and steer from the simulation, and it comes in six paints with racing stripes. Performance is modelled on published 992 GT3 RS figures; the body is not a Porsche asset. The main car, **Formula '86**, is an original generic 1980s-style single-seater; choose cars and paint in the garage menu shown over the game view before a run. The client accepts a locally supplied, licensed body-only Wavefront OBJ (up to 8 MB and 18,000 triangles). Export without wheels, with X width, Y up and Z forward. The importer normalizes length and maps materials approximately from material names; it does not import external textures or MTL files. Wheels are animated separately and may need alignment.
 
 The circuit is built by `tools/build-track.js` from the route, corner and kerb files in [JJ Ying's Nürburgring Map](https://github.com/JJYing/Nurburgring-Map) (MIT, see [TRACK-LICENSE.txt](TRACK-LICENSE.txt)). The route is GPS-derived (VeloViewer segment 5539685): the generated lap is 20,822.6 m (official 20,832 m), runs clockwise and spans 334–623 m elevation. It is smoothed, its 184 m start seam is interpolated, and a source spike of ~30% grade after Breidscheid is redistributed to an 18% maximum. Width, banking (including the Karussell), kerbs, corner ranges and scenery are approximate, not laser-scanned. Rights to the underlying route data should be confirmed before commercial use. No externally downloaded Porsche mesh is bundled.
 
